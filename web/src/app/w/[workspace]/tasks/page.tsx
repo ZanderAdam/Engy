@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 import { useVirtualParams } from "@/components/tabs/tab-context";
 import { trpc } from "@/lib/trpc";
 import { useWatchPaths } from "@/contexts/events-context";
@@ -59,8 +59,6 @@ export default function TasksPage() {
   });
   const { selection } = controller;
 
-  const visibleTaskIds = useMemo(() => (tasks ?? []).map((t) => t.id), [tasks]);
-
   if (!workspace || !defaultProject) return null;
 
   return (
@@ -83,7 +81,12 @@ export default function TasksPage() {
         </div>
       </div>
 
-      <TaskSelectionBar controller={controller} visibleTaskIds={visibleTaskIds} />
+      <TaskSelectionBar
+        controller={controller}
+        visibleTasks={tasks ?? []}
+        projectId={defaultProject.id}
+        projectSlug={defaultProject.slug}
+      />
 
       <EisenhowerMatrix
         tasks={tasks ?? []}

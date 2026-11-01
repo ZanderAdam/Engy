@@ -5,7 +5,7 @@ description: "This skill should be used when the user asks to 'implement', 'impl
 
 # Task Implementation
 
-Implements a single task or plan document end-to-end: context gathering, TDD implementation, code review, and validation. For milestone-level orchestration across multiple task groups, use `/engy:implement-milestone`.
+Implements one task, a short list of tasks, or a plan document end-to-end: context gathering, TDD implementation, code review, and validation. For milestone-level orchestration across multiple task groups, use `/engy:implement-milestone`.
 
 ## MCP Tools
 
@@ -26,6 +26,15 @@ Implements a single task or plan document end-to-end: context gathering, TDD imp
    - Adjust implementation scope to only cover remaining work.
 3. If the task description references a plan document path, read that plan — it is the primary requirements source. Otherwise the task description itself is the requirements source.
 4. `updateTask(id, status: "in_progress")`.
+
+### A2. From Several Engy Tasks
+
+The prompt form is `for tasks: <ws>-T1, <ws>-T2`, with optional `<ws>-T1 plan at <path>` entries. The number after `-T` is the id for `getTask`.
+
+1. Run the tasks **one after the other**, in the given order, unless `blockedBy` requires a different order. Never run them in parallel in one worktree: parallel agents overwrite each other's files.
+2. Run Steps 1–5 for each task, and treat the plan path given for a task as its requirements source.
+3. Update each task's status yourself with `updateTask`. A multi-task session does not update each task for you, so a task you skip stays `in_progress` until you change it.
+4. Commit each task separately. If one task fails, report it, set it to `review`, and continue with the next.
 
 ### B. From a Plan Document
 

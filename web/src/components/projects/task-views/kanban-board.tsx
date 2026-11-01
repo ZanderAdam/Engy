@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -15,6 +15,7 @@ import { RiArrowRightSLine } from '@remixicon/react';
 import { TaskCard } from '@/components/projects/task-card';
 import { DraggableTaskCard } from '@/components/projects/task-views/draggable-task-card';
 import { DroppableZone } from '@/components/projects/task-views/droppable-zone';
+import { KanbanLaneContent } from '@/components/projects/task-views/kanban-lane-content';
 import { CollapsedLaneStrip } from '@/components/projects/task-views/collapsed-lane-strip';
 import { CollapsedLaneRail } from '@/components/projects/task-views/collapsed-lane-rail';
 import { laneCollapsed } from '@/components/projects/task-views/kanban-collapse';
@@ -249,78 +250,36 @@ function KanbanColumn({
   const items = isDone && doneLimit > 0 ? allItems.slice(0, doneLimit) : allItems;
   const hiddenCount = totalCount - items.length;
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [overflow, setOverflow] = useState({ top: false, bottom: false });
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-
-    function updateOverflow() {
-      if (!el) return;
-      const top = el.scrollTop > 0;
-      const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
-      setOverflow({ top, bottom });
-    }
-
-    updateOverflow();
-    el.addEventListener('scroll', updateOverflow);
-
-    const observer = new ResizeObserver(updateOverflow);
-    observer.observe(el);
-
-    return () => {
-      el.removeEventListener('scroll', updateOverflow);
-      observer.disconnect();
-    };
-  }, [items.length, hiddenCount]);
-
   return (
     <DroppableZone
       id={status}
       className={`flex min-h-0 flex-col gap-2 bg-background p-3${flex1 ? ' flex-1' : ''}`}
     >
-      <div className="flex shrink-0 items-center gap-2">
-        <span className={`h-2 w-2 rounded-full ${statusDotColors[status]}`} />
-        <span className="text-xs font-medium text-muted-foreground">
-          {taskStatusLabels[status]}
-        </span>
-        <span className="text-xs text-muted-foreground/60">{totalCount}</span>
-        {headerAction}
-      </div>
-      <div className="relative flex min-h-0 flex-1 flex-col">
-        <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
-          {items.map((task) => (
-            <DraggableTaskCard
-              key={task.id}
-              task={task}
-              onClick={() => onTaskClick?.(task.id)}
-              className="rounded-none border border-border"
-              selectable={selectable}
-              selected={selectedIds?.has(task.id)}
-              onSelect={onTaskSelect}
-            />
-          ))}
-          {hiddenCount > 0 && (
-            <p className="py-2 text-center text-xs text-muted-foreground">+{hiddenCount} more</p>
-          )}
-          {items.length === 0 && (
-            <p className="py-4 text-center text-xs text-muted-foreground">No tasks</p>
-          )}
-        </div>
-        {overflow.top && (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-6 bg-gradient-to-b from-background to-transparent"
+      <KanbanLaneContent
+        dotColorClass={statusDotColors[status]}
+        label={taskStatusLabels[status]}
+        count={totalCount}
+        remeasureKey={`${items.length}:${hiddenCount}`}
+        headerAction={headerAction}
+      >
+        {items.map((task) => (
+          <DraggableTaskCard
+            key={task.id}
+            task={task}
+            onClick={() => onTaskClick?.(task.id)}
+            className="rounded-none border border-border"
+            selectable={selectable}
+            selected={selectedIds?.has(task.id)}
+            onSelect={onTaskSelect}
           />
+        ))}
+        {hiddenCount > 0 && (
+          <p className="py-2 text-center text-xs text-muted-foreground">+{hiddenCount} more</p>
         )}
-        {overflow.bottom && (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-background to-transparent"
-          />
+        {items.length === 0 && (
+          <p className="py-4 text-center text-xs text-muted-foreground">No tasks</p>
         )}
-      </div>
+      </KanbanLaneContent>
     </DroppableZone>
   );
 }

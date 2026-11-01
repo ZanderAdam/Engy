@@ -14,11 +14,11 @@ import { projectGroupKey, normalizeWtParam } from '@/components/terminal/group-k
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import type { ContainerMode, TerminalScope } from '@/components/terminal/types';
 
-export function useQuickAction() {
+export function useQuickAction(projectSlugOverride?: string) {
   const params = useVirtualParams<{ workspace: string; project: string }>();
   const searchParams = useVirtualSearchParams();
   const workspaceSlug = params.workspace ?? '';
-  const projectSlug = params.project ?? '';
+  const projectSlug = projectSlugOverride ?? params.project ?? '';
 
   const { data: workspace } = trpc.workspace.get.useQuery(
     { slug: workspaceSlug },

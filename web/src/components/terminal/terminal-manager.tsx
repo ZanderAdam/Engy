@@ -96,6 +96,7 @@ interface TerminalGroupEvent {
 
 interface TerminalManagerProps {
   onCollapse: () => void;
+  onReveal?: () => void;
   defaultScope?: TerminalScope;
   extraDropdownGroups?: TerminalDropdownGroup[];
   containerEnabled?: boolean;
@@ -159,7 +160,7 @@ function seedActivityStore(sessions: SessionListItem[]): void {
   for (const s of sessions) applyServerActivity(s.sessionId, s.activityState ?? 'idle');
 }
 
-export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups, containerEnabled, disableExternalEvents = false, publishKey, global = false }: TerminalManagerProps) {
+export function TerminalManager({ onCollapse, onReveal, defaultScope, extraDropdownGroups, containerEnabled, disableExternalEvents = false, publishKey, global = false }: TerminalManagerProps) {
   const tabCtx = useOptionalTab();
   const myTabId = tabCtx?.tabId ?? null;
 
@@ -316,6 +317,15 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     );
   }, [disableExternalEvents]);
 
+  const reveal = useCallback(() => {
+    if (isActiveRef.current) onReveal?.();
+  }, [onReveal]);
+
+  const revealRef = useRef(reveal);
+  useEffect(() => {
+    revealRef.current = reveal;
+  }, [reveal]);
+
   const dispatchActivityEvent = useCallback((sessionId: string, activityState: TerminalActivityState) => {
     if (disableExternalEvents) return;
     window.dispatchEvent(
@@ -391,6 +401,7 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
     createPendingFocus((sessionId) => {
       // Always broadcast so the right panel expands even if the tab was already active
       broadcastActiveRef.current();
+      revealRef.current();
       focusTerminalInput(sessionId);
       window.dispatchEvent(
         new CustomEvent('terminal:focused', {
@@ -870,6 +881,8 @@ export function TerminalManager({ onCollapse, defaultScope, extraDropdownGroups,
   useEffect(
     () => () => {
       if (sessionsSyncTimerRef.current) clearTimeout(sessionsSyncTimerRef.current);
+      // Saving from a disposed dockview writes a layout that restores to no panels.
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     },
     [],
   );

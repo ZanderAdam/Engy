@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# Git exports these to hooks, and they would redirect the temp repos that tests create.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
+main_sha=""
+while read -r _local_ref local_sha remote_ref _remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ] && [[ ! "$local_sha" =~ ^0+$ ]]; then
+    main_sha=$local_sha
+  fi
+done
+
+if [ -z "$main_sha" ]; then
+  exit 0
+fi
+
+ROOT=$(git rev-parse --show-toplevel) || exit 1
+cd "$ROOT" || exit 1
+
+if [ "$main_sha" != "$(git rev-parse HEAD)" ]; then
+  echo "pre-push: $main_sha is not HEAD, so blt would test the wrong tree. Check out that commit and push again." >&2
+  exit 1
+fi
+
+if [ -n "$(git status --porcelain --untracked-files=no -- . ':(exclude)docs')" ]; then
+  echo "pre-push: uncommitted changes outside docs/ would change what blt tests. Commit or stash them and push again." >&2
+  exit 1
+fi
+
+echo "pre-push: running pnpm blt in $ROOT..." >&2
+if pnpm blt; then
+  exit 0
+fi
+echo "pre-push: blt failed, push to main blocked. Fix the issues above and push again." >&2
+exit 1

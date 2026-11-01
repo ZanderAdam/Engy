@@ -3,13 +3,32 @@
  * encoded in one place prevents per-tab terminal isolation from silently
  * breaking when one call site drifts from another.
  */
+const WORKTREE_SEPARATOR = ':wt:';
+const SHELL_PREFIX = 'shell:';
+
 export function projectGroupKey(
   workspaceSlug: string,
   projectSlug: string,
   worktreeBranch?: string,
 ): string {
   const base = `project:${workspaceSlug}:${projectSlug}`;
-  return worktreeBranch ? `${base}:wt:${worktreeBranch}` : base;
+  return worktreeBranch ? `${base}${WORKTREE_SEPARATOR}${worktreeBranch}` : base;
+}
+
+/**
+ * The `?wt` value of the page that hosts a session. A session's `worktreeBranch`
+ * cannot answer this: a main-checkout session reports its live branch there.
+ */
+export function worktreeFromGroupKey(groupKey: string | undefined): string | undefined {
+  return groupKey?.split(WORKTREE_SEPARATOR)[1];
+}
+
+export function shellGroupKey(groupKey: string): string {
+  return `${SHELL_PREFIX}${groupKey}`;
+}
+
+export function isShellGroupKey(groupKey: string | undefined): boolean {
+  return groupKey?.startsWith(SHELL_PREFIX) ?? false;
 }
 
 export function workspaceGroupKey(workspaceSlug: string): string {
@@ -20,9 +39,6 @@ export function workspaceGroupKey(workspaceSlug: string): string {
 export function normalizeWtParam(raw: string | null | undefined): string | undefined {
   return raw && raw.length > 0 ? raw : undefined;
 }
-
-const SHELL_PREFIX = 'shell:';
-const WORKTREE_MARKER = ':wt:';
 
 interface ParsedGroupKey {
   shell: boolean;
@@ -36,11 +52,11 @@ export function parseGroupKey(groupKey: string): ParsedGroupKey | undefined {
   const key = shell ? groupKey.slice(SHELL_PREFIX.length) : groupKey;
 
   if (key.startsWith('project:')) {
-    const wtIndex = key.indexOf(WORKTREE_MARKER);
+    const wtIndex = key.indexOf(WORKTREE_SEPARATOR);
     const head = wtIndex < 0 ? key : key.slice(0, wtIndex);
     const [, workspaceSlug, projectSlug] = head.split(':');
     if (!workspaceSlug || !projectSlug) return undefined;
-    const worktreeBranch = wtIndex < 0 ? undefined : key.slice(wtIndex + WORKTREE_MARKER.length);
+    const worktreeBranch = wtIndex < 0 ? undefined : key.slice(wtIndex + WORKTREE_SEPARATOR.length);
     return { shell, workspaceSlug, projectSlug, ...(worktreeBranch ? { worktreeBranch } : {}) };
   }
 

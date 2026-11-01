@@ -297,7 +297,7 @@ describe('tab-state dedup', () => {
   });
 
   describe('redirectTab', () => {
-    it('[FR-TERMINAL-1030] should move the tab to the target when no other tab shows that project', () => {
+    it('[FR-TERMINAL-1150] should move the tab to the target when no other tab shows that project', () => {
       const state = {
         tabs: [tab({ id: 'a', virtualPath: '/t/s1' })],
         activeTabId: 'a',
@@ -307,7 +307,7 @@ describe('tab-state dedup', () => {
       expect(next.activeTabId).toBe('a');
     });
 
-    it('[FR-TERMINAL-1030] should drop the redirecting tab and keep the open tab section', () => {
+    it('[FR-TERMINAL-1150] should drop the redirecting tab and keep the open tab section', () => {
       const state = {
         tabs: [
           tab({ id: 'proj', virtualPath: '/w/eng/projects/p/tasks?wt=b' }),
@@ -322,7 +322,7 @@ describe('tab-state dedup', () => {
       expect(next.activeTabId).toBe('proj');
     });
 
-    it('[FR-TERMINAL-1030] should not steal focus when the redirecting tab is in the background', () => {
+    it('[FR-TERMINAL-1150] should not steal focus when the redirecting tab is in the background', () => {
       const state = {
         tabs: [
           tab({ id: 'proj', virtualPath: '/w/eng/projects/p?wt=b' }),
@@ -336,7 +336,7 @@ describe('tab-state dedup', () => {
       );
     });
 
-    it('[FR-TERMINAL-1030] should strip the param in place when an earlier tab shows the same project', () => {
+    it('[FR-TERMINAL-1150] should strip the param in place when an earlier tab shows the same project', () => {
       const state = {
         tabs: [
           tab({ id: 'b', virtualPath: '/w/eng/projects/p?wt=b' }),
@@ -352,7 +352,7 @@ describe('tab-state dedup', () => {
       expect(next.activeTabId).toBe('a');
     });
 
-    it('[FR-TERMINAL-1030] should strip the param on the same tab without touching other tabs', () => {
+    it('[FR-TERMINAL-1150] should strip the param on the same tab without touching other tabs', () => {
       const state = {
         tabs: [tab({ id: 'proj', virtualPath: '/w/eng/projects/p/tasks?terminal=s1&wt=b' })],
         activeTabId: 'proj',

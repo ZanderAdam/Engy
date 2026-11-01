@@ -73,9 +73,11 @@ export function useSendToTerminal() {
   );
 
   const focusTerminal = useCallback(
-    (sessionId: string) => {
+    (sessionId: string, groupKey?: string) => {
       window.dispatchEvent(
-        new CustomEvent('terminal:focus', { detail: { sessionId, ...(tabId ? { tabId } : {}) } }),
+        new CustomEvent('terminal:focus', {
+          detail: { sessionId, ...(tabId ? { tabId } : {}), ...(groupKey ? { groupKey } : {}) },
+        }),
       );
     },
     [tabId],

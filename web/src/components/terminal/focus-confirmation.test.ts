@@ -26,7 +26,7 @@ describe('requestTerminalFocus', () => {
       return () => window.removeEventListener('terminal:focus', onFocus);
     }
 
-    it('[FR-TERMINAL-1030] should not warn when the dock confirms inside the focus dispatch', () => {
+    it('[FR-TERMINAL-1150] should not warn when the dock confirms inside the focus dispatch', () => {
       vi.useFakeTimers();
       const unmount = mountDock(['s1']);
       const onMissing = vi.fn();
@@ -38,7 +38,7 @@ describe('requestTerminalFocus', () => {
       unmount();
     });
 
-    it('[FR-TERMINAL-1030] should warn when the mounted dock does not list the session', () => {
+    it('[FR-TERMINAL-1150] should warn when the mounted dock does not list the session', () => {
       vi.useFakeTimers();
       const unmount = mountDock(['other']);
       const onMissing = vi.fn();
@@ -51,7 +51,7 @@ describe('requestTerminalFocus', () => {
     });
   });
 
-  it('[FR-TERMINAL-1030] should stay quiet when a manager confirms the focus', () => {
+  it('[FR-TERMINAL-1150] should stay quiet when a manager confirms the focus', () => {
     vi.useFakeTimers();
     const onMissing = vi.fn();
     requestTerminalFocus({ sessionId: 's1', tabId: 'tab-1', onMissing });
@@ -62,7 +62,7 @@ describe('requestTerminalFocus', () => {
     expect(onMissing).not.toHaveBeenCalled();
   });
 
-  it('[FR-TERMINAL-1030] should report a terminal that no manager shows', () => {
+  it('[FR-TERMINAL-1150] should report a terminal that no manager shows', () => {
     vi.useFakeTimers();
     const onMissing = vi.fn();
     requestTerminalFocus({ sessionId: 's1', tabId: 'tab-1', onMissing });
@@ -72,7 +72,7 @@ describe('requestTerminalFocus', () => {
     expect(onMissing).toHaveBeenCalledOnce();
   });
 
-  it('[FR-TERMINAL-1030] should ignore confirmations for another session or tab', () => {
+  it('[FR-TERMINAL-1150] should ignore confirmations for another session or tab', () => {
     vi.useFakeTimers();
     const onMissing = vi.fn();
     requestTerminalFocus({ sessionId: 's1', tabId: 'tab-1', onMissing });

@@ -9,13 +9,13 @@ import type { TerminalDropdownGroup, TerminalScope } from './types';
 
 describe('terminal link', () => {
   describe('buildTerminalPageUrl', () => {
-    it('[FR-TERMINAL-1030] should target the project page with the terminal param', () => {
+    it('[FR-TERMINAL-1150] should target the project page with the terminal param', () => {
       expect(
         buildTerminalPageUrl({ workspaceSlug: 'ws', projectSlug: 'alpha' }, 'sess-1'),
       ).toBe('/w/ws/projects/alpha?terminal=sess-1');
     });
 
-    it('[FR-TERMINAL-1030] should add the worktree branch as wt', () => {
+    it('[FR-TERMINAL-1150] should add the worktree branch as wt', () => {
       expect(
         buildTerminalPageUrl(
           { workspaceSlug: 'ws', projectSlug: 'alpha', worktreeBranch: 'feat/x' },
@@ -24,7 +24,7 @@ describe('terminal link', () => {
       ).toBe('/w/ws/projects/alpha?terminal=sess-1&wt=feat%2Fx');
     });
 
-    it('[FR-TERMINAL-1030] should target the workspace page when there is no project', () => {
+    it('[FR-TERMINAL-1150] should target the workspace page when there is no project', () => {
       expect(buildTerminalPageUrl({ workspaceSlug: 'ws' }, 'sess-1')).toBe(
         '/w/ws?terminal=sess-1',
       );
@@ -32,11 +32,11 @@ describe('terminal link', () => {
   });
 
   describe('decodeSessionId', () => {
-    it('[FR-TERMINAL-1040] should decode a path segment', () => {
+    it('[FR-TERMINAL-1160] should decode a path segment', () => {
       expect(decodeSessionId('a%20b')).toBe('a b');
     });
 
-    it('[FR-TERMINAL-1040] should return null for a bad escape or an empty id', () => {
+    it('[FR-TERMINAL-1160] should return null for a bad escape or an empty id', () => {
       expect(decodeSessionId('%E0%A4%A')).toBeNull();
       expect(decodeSessionId('')).toBeNull();
     });
@@ -46,23 +46,23 @@ describe('terminal link', () => {
     const base = { sessionId: 'sess-1', resumeGroup: undefined, resumeGroupReady: true };
     const location = { workspaceSlug: 'ws' };
 
-    it('[FR-TERMINAL-1040] should report not-found when nothing resolved', () => {
+    it('[FR-TERMINAL-1160] should report not-found when nothing resolved', () => {
       expect(decideTerminalLinkAction({ ...base, target: null })).toEqual({ kind: 'not-found' });
     });
 
-    it('[FR-TERMINAL-1030] should focus a live session in the Claude dock', () => {
+    it('[FR-TERMINAL-1150] should focus a live session in the Claude dock', () => {
       expect(decideTerminalLinkAction({ ...base, target: { ...location, status: 'live' } })).toEqual(
         { kind: 'focus', dock: 'terminal' },
       );
     });
 
-    it('[FR-TERMINAL-1030] should focus a dormant session without restoring it', () => {
+    it('[FR-TERMINAL-1150] should focus a dormant session without restoring it', () => {
       expect(
         decideTerminalLinkAction({ ...base, target: { ...location, status: 'dormant' } }),
       ).toEqual({ kind: 'focus', dock: 'terminal' });
     });
 
-    it('[FR-TERMINAL-1030] should focus a shell session in the shell dock', () => {
+    it('[FR-TERMINAL-1150] should focus a shell session in the shell dock', () => {
       expect(
         decideTerminalLinkAction({
           ...base,
@@ -71,7 +71,7 @@ describe('terminal link', () => {
       ).toEqual({ kind: 'focus', dock: 'shell' });
     });
 
-    it('[FR-TERMINAL-1040] should wait for history before judging a closed session', () => {
+    it('[FR-TERMINAL-1160] should wait for history before judging a closed session', () => {
       expect(
         decideTerminalLinkAction({
           ...base,
@@ -81,7 +81,7 @@ describe('terminal link', () => {
       ).toEqual({ kind: 'wait' });
     });
 
-    it('[FR-TERMINAL-1040] should offer resume for a closed session with a resume entry', () => {
+    it('[FR-TERMINAL-1160] should offer resume for a closed session with a resume entry', () => {
       const resumeScope = { scopeLabel: 'resumed' } as TerminalScope;
       const resumeGroup: TerminalDropdownGroup = {
         entries: [
@@ -101,7 +101,7 @@ describe('terminal link', () => {
       ).toEqual({ kind: 'closed', resumeScope });
     });
 
-    it('[FR-TERMINAL-1040] should report closed without resume when history has no entry', () => {
+    it('[FR-TERMINAL-1160] should report closed without resume when history has no entry', () => {
       expect(
         decideTerminalLinkAction({ ...base, target: { ...location, status: 'closed' } }),
       ).toEqual({ kind: 'closed', resumeScope: undefined });
@@ -124,11 +124,11 @@ describe('terminal link', () => {
       ],
     };
 
-    it('[FR-TERMINAL-1040] should find the resume scope of a closed session', () => {
+    it('[FR-TERMINAL-1160] should find the resume scope of a closed session', () => {
       expect(findResumeScope(group, 'sess-1')).toBe(scope);
     });
 
-    it('[FR-TERMINAL-1040] should return undefined when history has no resume entry', () => {
+    it('[FR-TERMINAL-1160] should return undefined when history has no resume entry', () => {
       expect(findResumeScope(group, 'missing')).toBeUndefined();
       expect(findResumeScope(undefined, 'sess-1')).toBeUndefined();
     });

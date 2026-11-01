@@ -336,7 +336,7 @@ describe('comment delivery', () => {
       expect(pastes()[1]).toContain('Held note');
     });
 
-    it('[FR-TERMINAL-1050] should retry a live comment when the typing hold ends on an idle terminal', async () => {
+    it('[FR-TERMINAL-1170] should retry a live comment when the typing hold ends on an idle terminal', async () => {
       await caller.comment.setLive({ scope: DOC, sessionId: SESSION });
       ctx.state.deliveryRetryFlush = flushIdleSession;
       ctx.state.terminalSessionMeta.get(SESSION)!.lastHumanInputAt = Date.now();
@@ -349,7 +349,7 @@ describe('comment delivery', () => {
       expect(pastes()[0]).toContain('Typed over');
     });
 
-    it('[FR-TERMINAL-1050] should not paste twice before the delayed Enter when two flushes run back to back', async () => {
+    it('[FR-TERMINAL-1170] should not paste twice before the delayed Enter when two flushes run back to back', async () => {
       await caller.comment.setLive({ scope: DOC, sessionId: SESSION });
       await docThread('t1', 'One');
       const before = pastes().length;

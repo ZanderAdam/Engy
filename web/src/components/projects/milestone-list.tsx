@@ -41,6 +41,12 @@ type Milestone = {
   filename: string;
 };
 
+export type TaskListSelection = {
+  selectable: boolean;
+  selectedIds: ReadonlySet<number>;
+  onTaskSelect: (taskId: number) => void;
+};
+
 type TaskGroup = { id: number; milestoneRef: string | null; name: string; status: string; numInMilestone: number };
 
 export function sortMilestones(milestones: Milestone[]): Milestone[] {
@@ -68,6 +74,31 @@ export function sortTaskGroups(
   });
 }
 
+/**
+ * Tasks the overview can show. Collapsed rows count as shown. Task placement is
+ * not normalized: a grouped task renders only under its group, and a milestone
+ * group shows it only when the task carries that same milestone.
+ */
+export function overviewVisibleTasks(
+  tasks: Task[],
+  milestones: Milestone[],
+  taskGroups: Pick<TaskGroup, 'id' | 'milestoneRef'>[],
+  showDone: boolean,
+): Task[] {
+  const shownRefs = new Set(
+    milestones.filter((ms) => showDone || ms.status !== 'complete').map((ms) => ms.ref),
+  );
+  const groupsById = new Map(taskGroups.map((tg) => [tg.id, tg]));
+  return tasks.filter((task) => {
+    if (!showDone && isClosedTaskStatus(task.status)) return false;
+    if (task.taskGroupId === null) return !!task.milestoneRef && shownRefs.has(task.milestoneRef);
+    const group = groupsById.get(task.taskGroupId);
+    if (!group) return false;
+    if (group.milestoneRef === null) return true;
+    return task.milestoneRef === group.milestoneRef && shownRefs.has(group.milestoneRef);
+  });
+}
+
 function groupTasksByTg(tasks: Task[]): Map<number, Task[]> {
   const map = new Map<number, Task[]>();
   for (const t of tasks) {
@@ -80,17 +111,39 @@ function groupTasksByTg(tasks: Task[]): Map<number, Task[]> {
   return map;
 }
 
+function OverviewTaskCard({
+  task,
+  onTaskClick,
+  selection,
+}: {
+  task: Task;
+  onTaskClick?: (taskId: number) => void;
+  selection?: TaskListSelection;
+}) {
+  return (
+    <TaskCard
+      task={task}
+      onClick={onTaskClick ? () => onTaskClick(task.id) : undefined}
+      selectable={selection?.selectable}
+      selected={selection?.selectedIds.has(task.id)}
+      onSelect={selection?.onTaskSelect}
+    />
+  );
+}
+
 export function MilestoneList({
   projectId,
   milestones,
   showDone,
   onTaskClick,
+  selection,
   containerEnabled,
 }: {
   projectId: number;
   milestones: Milestone[];
   showDone: boolean;
   onTaskClick?: (taskId: number) => void;
+  selection?: TaskListSelection;
   containerEnabled?: boolean;
 }) {
   const sorted = sortMilestones(
@@ -106,6 +159,7 @@ export function MilestoneList({
           milestone={ms}
           showDone={showDone}
           onTaskClick={onTaskClick}
+          selection={selection}
           containerEnabled={containerEnabled}
         />
       ))}
@@ -120,11 +174,13 @@ export function StandaloneGroupList({
   projectId,
   showDone,
   onTaskClick,
+  selection,
   containerEnabled,
 }: {
   projectId: number;
   showDone: boolean;
   onTaskClick?: (taskId: number) => void;
+  selection?: TaskListSelection;
   containerEnabled?: boolean;
 }) {
   const { data: tasks } = trpc.task.list.useQuery({ projectId });
@@ -150,6 +206,7 @@ export function StandaloneGroupList({
             milestoneRef={null}
             showDone={showDone}
             onTaskClick={onTaskClick}
+            selection={selection}
             containerEnabled={containerEnabled}
           />
         ))}
@@ -163,12 +220,14 @@ function MilestoneRow({
   milestone,
   showDone,
   onTaskClick,
+  selection,
   containerEnabled,
 }: {
   projectId: number;
   milestone: Milestone;
   showDone: boolean;
   onTaskClick?: (taskId: number) => void;
+  selection?: TaskListSelection;
   containerEnabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -284,6 +343,7 @@ function MilestoneRow({
           milestoneRef={milestone.ref}
           showDone={showDone}
           onTaskClick={onTaskClick}
+          selection={selection}
           containerEnabled={containerEnabled}
         />
       ))}
@@ -291,10 +351,11 @@ function MilestoneRow({
         <div className="flex flex-col">
           <p className="px-2 py-1.5 text-[10px] font-medium text-muted-foreground">Other tasks</p>
           {visibleUngrouped.map((task) => (
-            <TaskCard
+            <OverviewTaskCard
               key={task.id}
               task={task}
-              onClick={onTaskClick ? () => onTaskClick(task.id) : undefined}
+              onTaskClick={onTaskClick}
+              selection={selection}
             />
           ))}
         </div>
@@ -343,6 +404,7 @@ function TaskGroupRow({
   milestoneRef,
   showDone,
   onTaskClick,
+  selection,
   containerEnabled,
 }: {
   taskGroup: TaskGroup;
@@ -350,6 +412,7 @@ function TaskGroupRow({
   milestoneRef: string | null;
   showDone: boolean;
   onTaskClick?: (taskId: number) => void;
+  selection?: TaskListSelection;
   containerEnabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -439,10 +502,11 @@ function TaskGroupRow({
         <CollapsibleContent>
           <div className="ml-5 flex flex-col border-l border-border">
             {visibleTasks.map((task) => (
-              <TaskCard
+              <OverviewTaskCard
                 key={task.id}
                 task={task}
-                onClick={onTaskClick ? () => onTaskClick(task.id) : undefined}
+                onTaskClick={onTaskClick}
+                selection={selection}
               />
             ))}
             {total === 0 && (

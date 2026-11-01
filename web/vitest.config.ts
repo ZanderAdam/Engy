@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import path from 'node:path';
 
 export default defineConfig({
@@ -16,6 +16,14 @@ export default defineConfig({
     // Suppress qmd model initialisation in all tests by default. Individual test
     // files that need real qmd search (search.test.ts) clear this flag selectively.
     env: { QMD_SKIP: '1' },
+    // The module graph cannot see these: `@engy/common` is mostly type imports,
+    // and migrations are read from disk at runtime.
+    forceRerunTriggers: [
+      ...configDefaults.forceRerunTriggers,
+      '**/common/src/**',
+      '**/pnpm-lock.yaml',
+      '**/src/server/db/migrations/**',
+    ],
     include: [
       'src/server/**/*.test.ts',
       'src/lib/**/*.test.ts',
