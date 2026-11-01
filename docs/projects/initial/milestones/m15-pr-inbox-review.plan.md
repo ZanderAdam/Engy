@@ -1,6 +1,6 @@
 ---
 title: PR Inbox & Review
-status: draft
+status: complete
 ---
 
 # Plan: M15 PR Inbox & Review
