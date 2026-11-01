@@ -4,7 +4,7 @@ import type { FileWriteRequestMessage } from '@engy/common';
 import { appRouter } from '../root';
 import { type AppState } from '../context';
 import { setupTestDb, type TestContext } from '../test-helpers';
-import { terminalSessionHistory, terminalSessions, workspaces } from '../../db/schema';
+import { projects, terminalSessionHistory, terminalSessions, workspaces } from '../../db/schema';
 import { recordSessionStart } from '../../ws/terminal-session-history';
 import { TERMINAL_IMAGE_MAX_BYTES } from '@/lib/terminal-image';
 import { createDispatch } from '../../terminal-dispatch';
@@ -196,9 +196,53 @@ describe('terminal router', () => {
       expect(state.dispatchWorkers.has(sessionId)).toBe(false);
     });
 
+    it('[FR-TERMINAL-1080] should spawn in the project of the current dock', async () => {
+      const sent: string[] = [];
+      state.terminalDaemon = fakeDaemon(sent);
+      const workspace = ctx.db.select().from(workspaces).get()!;
+      ctx.db.insert(projects).values({ workspaceId: workspace.id, name: 'P', slug: 'proj' }).run();
+
+      const { sessionId } = await caller.terminal.startOrchestrator({
+        workspaceSlug: 'ws',
+        projectSlug: 'proj',
+        worktreeBranch: 'feat/x',
+        workingDir: '/repo/wt',
+      });
+
+      expect(JSON.parse(sent[0])).toMatchObject({ workingDir: '/repo/wt' });
+      expect(state.terminalSessionMeta.get(sessionId)).toMatchObject({
+        orchestrator: true,
+        scopeType: 'project',
+        groupKey: 'project:ws:proj:wt:feat/x',
+        projectSlug: 'proj',
+        worktreeBranch: 'feat/x',
+      });
+    });
+
+    it('[FR-TERMINAL-1080] should refuse an unknown project', async () => {
+      state.terminalDaemon = fakeDaemon([]);
+      await expect(
+        caller.terminal.startOrchestrator({ workspaceSlug: 'ws', projectSlug: 'nope' }),
+      ).rejects.toThrow('Project not found');
+    });
+
+    it('[FR-TERMINAL-1060] should keep the orchestrator of another project', async () => {
+      addSession(state, 'alpha');
+      addSession(state, 'beta');
+      state.terminalSessionMeta.get('alpha')!.projectSlug = 'alpha';
+      state.terminalSessionMeta.get('beta')!.projectSlug = 'beta';
+
+      await caller.terminal.setOrchestrator({ sessionId: 'alpha', enabled: true });
+      await caller.terminal.setOrchestrator({ sessionId: 'beta', enabled: true });
+
+      expect(state.terminalSessionMeta.get('alpha')!.orchestrator).toBe(true);
+      expect(state.terminalSessionMeta.get('beta')!.orchestrator).toBe(true);
+    });
+
     it('[FR-TERMINAL-1080] should move the role from a previous orchestrator', async () => {
       state.terminalDaemon = fakeDaemon([]);
       addSession(state, 'old');
+      state.terminalSessionMeta.get('old')!.workspaceSlug = 'ws';
       await caller.terminal.setOrchestrator({ sessionId: 'old', enabled: true });
 
       const { sessionId } = await caller.terminal.startOrchestrator({ workspaceSlug: 'ws' });

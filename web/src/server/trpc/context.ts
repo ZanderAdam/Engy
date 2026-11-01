@@ -47,8 +47,8 @@ export interface TerminalSessionMeta {
   spawnedBy?: string;
   // How many agent hops separate this terminal from a user-opened one.
   spawnDepth?: number;
-  // Human-set (terminal.setOrchestrator only). The one terminal that may
-  // dispatch to any live agent terminal. At most one session holds it.
+  // Human-set (terminal.setOrchestrator only). The one terminal of a project
+  // that may dispatch to any live agent terminal of that project.
   orchestrator?: boolean;
   // Human-set: refuse every dispatch to this terminal.
   dispatchOptOut?: boolean;

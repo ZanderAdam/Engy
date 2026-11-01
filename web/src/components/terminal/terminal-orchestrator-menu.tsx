@@ -13,13 +13,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { parseGroupKey } from './group-key';
+import type { TerminalScope } from './types';
 
 export function TerminalOrchestratorMenu({
   activeSessionId,
-  workspaceSlug,
+  scope,
 }: {
   activeSessionId: string | undefined;
-  workspaceSlug: string | undefined;
+  scope: TerminalScope | undefined;
 }) {
   const utils = trpc.useUtils();
   const { data: agents } = trpc.terminal.listWorkers.useQuery();
@@ -41,8 +43,15 @@ export function TerminalOrchestratorMenu({
     onError,
   });
 
+  const dockBranch = scope ? parseGroupKey(scope.groupKey)?.worktreeBranch : undefined;
   const active = agents?.find((agent) => agent.sessionId === activeSessionId);
-  const orchestratorExists = agents?.some((agent) => agent.orchestrator) ?? false;
+  const orchestratorExists =
+    agents?.some(
+      (agent) =>
+        agent.orchestrator &&
+        agent.workspaceSlug === scope?.workspaceSlug &&
+        agent.projectSlug === scope?.projectSlug,
+    ) ?? false;
   const canToggle = active !== undefined;
 
   return (
@@ -69,7 +78,7 @@ export function TerminalOrchestratorMenu({
             activeSessionId && setOrchestrator.mutate({ sessionId: activeSessionId, enabled })
           }
         >
-          Orchestrator (may dispatch to any agent terminal)
+          Orchestrator (may dispatch to any agent terminal in this project)
         </DropdownMenuCheckboxItem>
         <DropdownMenuCheckboxItem
           disabled={!canToggle}
@@ -82,8 +91,16 @@ export function TerminalOrchestratorMenu({
         </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          disabled={!workspaceSlug || startOrchestrator.isPending}
-          onClick={() => workspaceSlug && startOrchestrator.mutate({ workspaceSlug })}
+          disabled={!scope?.workspaceSlug || startOrchestrator.isPending}
+          onClick={() =>
+            scope?.workspaceSlug &&
+            startOrchestrator.mutate({
+              workspaceSlug: scope.workspaceSlug,
+              projectSlug: scope.projectSlug,
+              worktreeBranch: dockBranch,
+              workingDir: dockBranch ? scope.workingDir : undefined,
+            })
+          }
         >
           {orchestratorExists
             ? 'Start a new orchestrator (replaces current)'

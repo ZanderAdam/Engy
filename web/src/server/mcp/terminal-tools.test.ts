@@ -1002,6 +1002,45 @@ describe('MCP terminal tools', () => {
       expect(String(data.error)).toContain('turned dispatch off');
     });
 
+    it('[FR-MCP-130] should list only its own project for the orchestrator', async () => {
+      addAgent('boss', { orchestrator: true, workspaceSlug: 'ws', projectSlug: 'alpha' });
+      addAgent('near', { workspaceSlug: 'ws', projectSlug: 'alpha' });
+      addAgent('far', { workspaceSlug: 'ws', projectSlug: 'beta' });
+
+      const { data } = await callTool(makeMcp('boss'), 'terminal_list_workers')();
+      const workers = data.workers as Array<{ sessionId: string }>;
+
+      expect(workers.map((w) => w.sessionId).sort()).toEqual(['boss', 'near']);
+    });
+
+    it('[FR-MCP-140] should hide output outside its project from the orchestrator', async () => {
+      addAgent('boss', { orchestrator: true, workspaceSlug: 'ws', projectSlug: 'alpha' });
+      addAgent('near', { workspaceSlug: 'ws', projectSlug: 'alpha' });
+      addAgent('far', { workspaceSlug: 'ws', projectSlug: 'beta' });
+      connectWorker(state, 'far', 'far worker');
+      state.terminalOutputTails.set('near', 'near output');
+      state.terminalOutputTails.set('far', 'far output');
+
+      const status = callTool(makeMcp('boss'), 'terminal_status');
+
+      expect((await status({ workerSessionId: 'near' })).data.outputTail).toBe('near output');
+      expect((await status({ workerSessionId: 'far' })).data.outputTail).toBeUndefined();
+    });
+
+    it('[FR-MCP-340] should refuse an orchestrator spawn outside its project', async () => {
+      ctx.db.insert(workspaces).values({ name: 'Other', slug: 'other', repos: ['/other'] }).run();
+      addAgent('boss', { orchestrator: true, workspaceSlug: 'ws' });
+
+      const { isError, data } = await callTool(makeMcp('boss'), 'terminal_spawn')({
+        agentType: 'codex',
+        cwd: '/other',
+        description: 'worker',
+      });
+
+      expect(isError).toBe(true);
+      expect(String(data.error)).toContain('outside your project');
+    });
+
     it('[FR-MCP-110] should expose no tool that grants the orchestrator role', () => {
       const tools = (makeMcp('boss') as unknown as { _registeredTools: Record<string, unknown> })
         ._registeredTools;

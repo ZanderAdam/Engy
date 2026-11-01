@@ -24,10 +24,9 @@ import {
   spawnAgentTerminal,
 } from '../../terminal-dispatch';
 import { coderWorkspaceForSession } from '../../terminal-coder-workspace';
-import { workspaceRepos } from '../../terminal-spawn-scope';
+import { findProject, spawnScope, workspaceRepos } from '../../terminal-spawn-scope';
 import { getWorkspaceDir } from '../../engy-dir/init';
 import { deriveMcpOrigin } from '../../terminal-link';
-import { workspaceGroupKey } from '@/components/terminal/group-key';
 import { isAgentActive, isAgentTypeId } from '@/lib/agent-types';
 import { listSessionHistory, liveHistoryKeys } from '../../ws/terminal-session-history';
 import { resolveTerminalLinkTarget } from '../../ws/terminal-link-target';
@@ -55,7 +54,7 @@ function requireLiveAgentSession(sessionId: string): TerminalSessionMeta {
 }
 
 const ORCHESTRATOR_PROMPT =
-  'You are the Engy orchestrator for this workspace. Call terminal_list_workers to see every live agent terminal. ' +
+  'You are the Engy orchestrator for this project. Call terminal_list_workers to see the live agent terminals of this project; you can reach no others. ' +
   'Hand independent units of work to them with terminal_dispatch, then end your turn: results arrive as [engy-notice] messages. ' +
   'Treat a reply as a claim, not proof: read its evidence, and a "stopped" state means the worker ended without reporting. ' +
   'Do not dispatch to a terminal the user did not expect, and ask the user before spawning many agents.';
@@ -80,7 +79,15 @@ export const terminalRouter = router({
     }),
 
   startOrchestrator: publicProcedure
-    .input(z.object({ workspaceSlug: z.string(), agentType: z.string().default('claude') }))
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        projectSlug: z.string().optional(),
+        worktreeBranch: z.string().optional(),
+        workingDir: z.string().optional(),
+        agentType: z.string().default('claude'),
+      }),
+    )
     .mutation(({ input }) => {
       const state = getAppState();
       const workspace = getDb()
@@ -98,16 +105,16 @@ export const terminalRouter = router({
           message: `Agent '${input.agentType}' is deactivated in this workspace`,
         });
       }
+      const project = input.projectSlug ? findProject(workspace, input.projectSlug) : undefined;
+      if (input.projectSlug && !project) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+      }
       const spawned = spawnAgentTerminal(state, {
         agentType: input.agentType,
-        workingDir: workspaceRepos(workspace)[0] ?? getWorkspaceDir(workspace),
+        workingDir: input.workingDir ?? workspaceRepos(workspace)[0] ?? getWorkspaceDir(workspace),
         description: 'Orchestrator',
         prompt: ORCHESTRATOR_PROMPT,
-        scope: {
-          scopeType: 'workspace',
-          groupKey: workspaceGroupKey(workspace.slug),
-          workspaceSlug: workspace.slug,
-        },
+        scope: spawnScope(workspace, project, input.worktreeBranch),
         mcpOrigin: deriveMcpOrigin(undefined),
         agentSettings: workspace.agentSettings,
       });

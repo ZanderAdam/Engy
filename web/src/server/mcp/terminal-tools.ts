@@ -11,10 +11,11 @@ import {
   createDispatch,
   dispatchRefusal,
   getWorkerOutputTail,
-  isOrchestrator,
   listWorkers,
+  orchestratorMeta,
   resolveDispatchReply,
   resolveWorkerReply,
+  sameProject,
   spawnAgentTerminal,
   waitForDispatchReply,
 } from '../terminal-dispatch';
@@ -227,7 +228,7 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
 
   mcp.tool(
     'terminal_spawn',
-    'Spawn a new agent terminal of any registered agent type, including your own. The spawned terminal auto-connects as a dispatch worker — send it work via terminal_dispatch',
+    'Spawn a new agent terminal of any registered agent type, including your own. The spawned terminal auto-connects as a dispatch worker — send it work via terminal_dispatch. An orchestrator spawns only in its own project',
     terminalSpawnInput,
     async ({ agentType, cwd, description, prompt }) => {
       const state = getAppState();
@@ -252,11 +253,17 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
       if (!path.isAbsolute(cwd)) {
         return mcpError(`cwd must be an absolute path, got '${cwd}'. Pass the full repo path.`);
       }
-      const target = await resolveSpawnTarget(cwd, state);
+      const orchestrator = orchestratorMeta(state, callerTerminalSessionId);
+      const target = await resolveSpawnTarget(cwd, state, orchestrator);
       if (!target) {
         const repos = listAllWorkspaceRepos();
         return mcpError(
           `cwd must be inside a workspace repo (worktrees under a repo count). Registered repos: ${repos.join(', ') || '(none)'}.`,
+        );
+      }
+      if (orchestrator && !sameProject(orchestrator, target.scope)) {
+        return mcpError(
+          `cwd is outside your project — an orchestrator spawns only in the project it runs in (${orchestrator.scopeLabel}).`,
         );
       }
       if (!isAgentActive(target.workspace.agentSettings, agentType)) {
@@ -329,15 +336,18 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
 
   mcp.tool(
     'terminal_list_workers',
-    'List every live agent terminal across all workspaces (plain shells excluded). `connected` is true when the user connected it as a dispatch worker; the user-set orchestrator may dispatch to any of them, other callers only to connected ones',
+    'List every live agent terminal across all workspaces (plain shells excluded). An orchestrator sees only the terminals of its own project, and may dispatch to any of them. `connected` is true when the user connected it as a dispatch worker; other callers may dispatch only to connected ones',
     {},
     async () => {
       const state = getAppState();
       const origin = callerOrigin(state);
-      const workers = listWorkers(state).map((worker) => ({
-        ...worker,
-        link: terminalLink(origin, worker.sessionId),
-      }));
+      const orchestrator = orchestratorMeta(state, callerTerminalSessionId);
+      const workers = listWorkers(state)
+        .filter((worker) => !orchestrator || sameProject(orchestrator, worker))
+        .map((worker) => ({
+          ...worker,
+          link: terminalLink(origin, worker.sessionId),
+        }));
       if (workers.length === 0) {
         return mcpResult({
           workers: [],
@@ -404,7 +414,7 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
 
   mcp.tool(
     'terminal_dispatch',
-    "Send a prompt to an agent terminal. Allowed for terminals the user connected as workers, and for any live agent terminal when you hold the orchestrator role. The worker replies via terminal_reply; in async mode the settled result is pushed into your terminal when ready (no polling needed if you're an Engy-spawned agent)",
+    "Send a prompt to an agent terminal. Allowed for terminals the user connected as workers; when you hold the orchestrator role, allowed for every live agent terminal of your project and no other. The worker replies via terminal_reply; in async mode the settled result is pushed into your terminal when ready (no polling needed if you're an Engy-spawned agent)",
     terminalDispatchInput,
     async ({ workerSessionId, message, mode, timeoutSeconds }) => {
       const state = getAppState();
@@ -499,7 +509,7 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
 
   mcp.tool(
     'terminal_status',
-    'Inspect a live agent terminal: description, agent type, activity state, and the last `lines` lines (default 50) of its terminal output. Output is returned for connected workers, and for any agent terminal only to the orchestrator. The output is for debugging only — it never feeds status',
+    'Inspect a live agent terminal: description, agent type, activity state, and the last `lines` lines (default 50) of its terminal output. Output is returned for connected workers; an orchestrator gets it for the terminals of its own project only. The output is for debugging only — it never feeds status',
     terminalStatusInput,
     async ({ workerSessionId, lines }) => {
       const state = getAppState();
@@ -510,7 +520,8 @@ export function registerTerminalTools(mcp: McpServer, callerTerminalSessionId?: 
         );
       }
       const meta = state.terminalSessionMeta.get(workerSessionId);
-      const mayReadOutput = worker.connected || isOrchestrator(state, callerTerminalSessionId);
+      const orchestrator = orchestratorMeta(state, callerTerminalSessionId);
+      const mayReadOutput = orchestrator ? sameProject(orchestrator, worker) : worker.connected;
       return mcpResult({
         ...worker,
         link: terminalLink(callerOrigin(state), workerSessionId),

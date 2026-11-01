@@ -432,6 +432,42 @@ describe('terminal dispatch', () => {
       state.terminalSessionMeta.get('caller')!.orchestrator = true;
       expect(dispatchRefusal(state, 'caller', 'worker')).toContain('turned dispatch off');
     });
+
+    it('[FR-MCP-110] should fail a dispatch queued before the caller became an orchestrator elsewhere', () => {
+      const caller = state.terminalSessionMeta.get('caller')!;
+      caller.projectSlug = 'alpha';
+      const worker = state.terminalSessionMeta.get('worker')!;
+      worker.projectSlug = 'beta';
+      worker.activityState = 'active';
+      connectWorker(state, 'worker', 'w');
+      const entry = createDispatch(state, 'worker', 'task', { originSessionId: 'caller' });
+      expect(entry.status).toBe('queued');
+
+      caller.orchestrator = true;
+      worker.activityState = 'idle';
+      flushDispatchInbox(state, 'worker');
+
+      expect(getDispatch(entry.correlationId)?.status).toBe('failed');
+      expect(getDispatch(entry.correlationId)?.error).toContain('outside your project');
+    });
+
+    it('[FR-MCP-110] should keep the orchestrator inside its project, connected worker or not', () => {
+      const caller = state.terminalSessionMeta.get('caller')!;
+      caller.orchestrator = true;
+      caller.workspaceSlug = 'ws';
+      caller.projectSlug = 'alpha';
+      const worker = state.terminalSessionMeta.get('worker')!;
+      worker.workspaceSlug = 'ws';
+      worker.projectSlug = 'beta';
+      connectWorker(state, 'worker', 'w');
+
+      expect(dispatchRefusal(state, 'caller', 'worker')).toContain('outside your project');
+
+      worker.projectSlug = 'alpha';
+      worker.worktreeBranch = 'feat/x';
+      disconnectWorker(state, 'worker');
+      expect(dispatchRefusal(state, 'caller', 'worker')).toBeNull();
+    });
   });
 
   describe('recordHumanInput', () => {

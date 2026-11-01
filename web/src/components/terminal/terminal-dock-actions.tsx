@@ -190,10 +190,7 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
       )}
       <TerminalOrchestratorMenu
         activeSessionId={activePanel?.id}
-        workspaceSlug={
-          (activePanel?.params as TerminalPanelParams | undefined)?.tab.scope.workspaceSlug ??
-          defaultScope?.workspaceSlug
-        }
+        scope={(activePanel?.params as TerminalPanelParams | undefined)?.tab.scope ?? defaultScope}
       />
       <TerminalWorkerButton
         activeSessionId={activePanel?.id}

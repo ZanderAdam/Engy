@@ -65,6 +65,49 @@ describe('resolveSpawnTarget', () => {
     expect(target?.scope).toMatchObject({ groupKey: 'project:ws:proj', worktreeBranch: undefined });
   });
 
+  it('[FR-MCP-340] should place a repo cwd in the home project of the same workspace', async () => {
+    const home = {
+      workspaceSlug: 'ws',
+      projectSlug: 'proj',
+      groupKey: 'project:ws:proj:wt:feat/x',
+      worktreeBranch: 'moved-head',
+    };
+
+    const target = await resolveSpawnTarget('/repos/app', ctx.state, home);
+
+    expect(target?.scope).toMatchObject({
+      scopeType: 'project',
+      groupKey: 'project:ws:proj:wt:feat/x',
+      projectSlug: 'proj',
+      worktreeBranch: 'feat/x',
+    });
+    expect(dispatchGitBranch).not.toHaveBeenCalled();
+  });
+
+  it('[FR-MCP-340] should prefer the home workspace when two workspaces list the repo', async () => {
+    const second = ctx.db
+      .insert(workspaces)
+      .values({ name: 'Second', slug: 'second', repos: ['/repos/app'] })
+      .returning()
+      .get();
+    ctx.db.insert(projects).values({ workspaceId: second.id, name: 'Q', slug: 'q' }).run();
+
+    const target = await resolveSpawnTarget('/repos/app', ctx.state, {
+      workspaceSlug: 'second',
+      projectSlug: 'q',
+    });
+
+    expect(target?.scope).toMatchObject({ workspaceSlug: 'second', projectSlug: 'q' });
+  });
+
+  it('[FR-MCP-340] should ignore a home project of another workspace', async () => {
+    const home = { workspaceSlug: 'other', projectSlug: 'proj' };
+
+    const target = await resolveSpawnTarget('/repos/app', ctx.state, home);
+
+    expect(target?.scope).toMatchObject({ scopeType: 'workspace', groupKey: 'workspace:ws' });
+  });
+
   it('[FR-MCP-160] should resolve nothing for a directory no workspace owns, review worktrees included', async () => {
     expect(await resolveSpawnTarget('/elsewhere', ctx.state)).toBeNull();
     expect(

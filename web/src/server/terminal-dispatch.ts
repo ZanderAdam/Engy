@@ -53,6 +53,8 @@ const PASTE_HOLD_MS = 2_000;
 const LATE_REPLY_WINDOW_MS = 10 * 60_000;
 const OPT_OUT_REASON =
   'The user turned dispatch off for that terminal — it accepts no dispatched prompts.';
+const OUTSIDE_PROJECT_REASON =
+  'That terminal is outside your project — an orchestrator reaches only terminals in the project it runs in.';
 const BRACKETED_PASTE_START = '\x1b[200~';
 const BRACKETED_PASTE_END = '\x1b[201~';
 // A message containing either paste sentinel would break out of the bracketed
@@ -148,8 +150,21 @@ export function listWorkers(state: AppState): WorkerInfo[] {
   return workers;
 }
 
-export function isOrchestrator(state: AppState, sessionId: string | undefined): boolean {
-  return sessionId != null && state.terminalSessionMeta.get(sessionId)?.orchestrator === true;
+export interface ProjectIdentity {
+  workspaceSlug?: string;
+  projectSlug?: string;
+}
+
+export function sameProject(a: ProjectIdentity, b: ProjectIdentity): boolean {
+  return a.workspaceSlug === b.workspaceSlug && a.projectSlug === b.projectSlug;
+}
+
+export function orchestratorMeta(
+  state: AppState,
+  sessionId: string | undefined,
+): TerminalSessionMeta | undefined {
+  const meta = sessionId == null ? undefined : state.terminalSessionMeta.get(sessionId);
+  return meta?.orchestrator ? meta : undefined;
 }
 
 export function dispatchRefusal(
@@ -166,9 +181,11 @@ export function dispatchRefusal(
     return OPT_OUT_REASON;
   }
   if (callerSessionId === workerSessionId) return 'A terminal cannot dispatch to itself.';
+  const orchestrator = orchestratorMeta(state, callerSessionId);
+  if (orchestrator) {
+    return sameProject(orchestrator, workerMeta) ? null : OUTSIDE_PROJECT_REASON;
+  }
   if (state.dispatchWorkers.has(workerSessionId)) return null;
-
-  if (isOrchestrator(state, callerSessionId)) return null;
   return 'That terminal is not connected as a worker. Call terminal_list_workers for connected workers; the user connects one from the terminal panel, or marks one terminal as the orchestrator.';
 }
 
@@ -379,10 +396,19 @@ export function flushDispatchInbox(state: AppState, workerSessionId: string): bo
 
   // One at a time: the delivery flips the worker to active; the next act→idle
   // transition flushes the next entry.
-  const [next] = listWorkerDispatches(workerSessionId, ['queued']);
-  if (!next) return false;
-  deliverDispatch(state, next);
-  return true;
+  for (const entry of listWorkerDispatches(workerSessionId, ['queued'])) {
+    // The caller can gain the role while a dispatch waits in the queue. Only the
+    // project limit is rechecked: the connected set is lost on a web restart.
+    const origin = orchestratorMeta(state, entry.originSessionId);
+    const workerMeta = state.terminalSessionMeta.get(workerSessionId);
+    if (origin && workerMeta && !sameProject(origin, workerMeta)) {
+      settleDispatch(state, entry, 'failed', { error: OUTSIDE_PROJECT_REASON });
+      continue;
+    }
+    deliverDispatch(state, entry);
+    return true;
+  }
+  return false;
 }
 
 const NOTICE_RESULT_MAX_CHARS = 2_000;
@@ -824,9 +850,10 @@ function updateDispatchFlags(
 }
 
 export function setOrchestrator(state: AppState, sessionId: string, enabled: boolean): void {
-  if (enabled) {
+  const target = state.terminalSessionMeta.get(sessionId);
+  if (enabled && target) {
     for (const [otherId, other] of state.terminalSessionMeta) {
-      if (otherId !== sessionId && other.orchestrator) {
+      if (otherId !== sessionId && other.orchestrator && sameProject(other, target)) {
         updateDispatchFlags(state, otherId, (meta) => {
           meta.orchestrator = undefined;
         });
