@@ -10,6 +10,7 @@ import type { TerminalDropdownGroup } from './types';
 
 interface TerminalPanelProps {
   onCollapse?: () => void;
+  onReveal?: () => void;
   extraDropdownGroups?: TerminalDropdownGroup[];
   containerEnabled?: boolean;
 }
@@ -26,7 +27,12 @@ const noop = () => {};
 // lists every terminal across all projects/worktrees and publishes them to the
 // rail under a shared key. Remounting on the toggle (via `key`) swaps the dock
 // between the project's sessions and the global set cleanly.
-export function TerminalPanel({ onCollapse, extraDropdownGroups, containerEnabled }: TerminalPanelProps) {
+export function TerminalPanel({
+  onCollapse,
+  onReveal,
+  extraDropdownGroups,
+  containerEnabled,
+}: TerminalPanelProps) {
   const scope = useTerminalScope();
   const scopeKey = scope.groupKey;
   const commandCenter = useCommandCenterMode();
@@ -36,6 +42,7 @@ export function TerminalPanel({ onCollapse, extraDropdownGroups, containerEnable
       <TerminalManager
         key={commandCenter ? COMMAND_CENTER_GROUP_KEY : scopeKey}
         onCollapse={onCollapse ?? noop}
+        onReveal={onReveal}
         defaultScope={scope}
         extraDropdownGroups={extraDropdownGroups}
         containerEnabled={containerEnabled}

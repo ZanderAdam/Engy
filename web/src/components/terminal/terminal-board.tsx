@@ -121,7 +121,7 @@ function useOpenBoardTerminal(workspaceSlug: string) {
       nav.push(query ? `${pathname}?${query}` : pathname);
       return;
     }
-    focusTerminal(session.sessionId);
+    focusTerminal(session.sessionId, session.groupKey);
   };
 }
 

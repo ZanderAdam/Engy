@@ -124,6 +124,10 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     setTerminalCollapsed(true);
   }, []);
 
+  const handleReveal = useCallback(() => {
+    setTerminalCollapsed(false);
+  }, []);
+
   const basePath = `/w/${params.workspace}`;
   const isProjectRoute = pathname.startsWith(`${basePath}/projects/`);
   const isDocsRoute = pathname.startsWith(`${basePath}/docs`);
@@ -658,6 +662,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           rightContent={
             <TerminalPanel
               onCollapse={handleCollapse}
+              onReveal={handleReveal}
               extraDropdownGroups={allDropdownGroups}
               containerEnabled={isContainerEnabled}
             />

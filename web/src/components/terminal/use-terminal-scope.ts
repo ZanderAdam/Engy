@@ -16,7 +16,7 @@ import {
 } from '@/lib/agent-types';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import type { TerminalScope } from "./types";
-import { projectGroupKey, workspaceGroupKey, normalizeWtParam } from './group-key';
+import { projectGroupKey, shellGroupKey, workspaceGroupKey, normalizeWtParam } from './group-key';
 
 // ── Default terminal scope logic — DO NOT CHANGE ──────────────────────
 // When starting Claude from the terminal panel (not task quick actions):
@@ -96,7 +96,7 @@ export function deriveShellScope(scope: TerminalScope): TerminalScope {
   return {
     ...scope,
     command: undefined,
-    groupKey: `shell:${scope.groupKey}`,
+    groupKey: shellGroupKey(scope.groupKey),
     scopeLabel: `shell: ${scope.scopeLabel}`,
   };
 }

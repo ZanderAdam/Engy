@@ -9,6 +9,7 @@ import {
   useVerticalPanelResize,
   type VerticalPanelConfig,
 } from '@/lib/hooks/use-vertical-panel-resize';
+import { useCommandCenterMode } from './command-center/use-command-center-mode';
 import { useBottomTerminalScope, deriveShellScope } from './use-terminal-scope';
 import { TerminalManager } from './terminal-manager';
 import { BottomTerminalToggle } from './bottom-terminal-toggle';
@@ -70,6 +71,7 @@ export function BottomTerminalSplit({
     useVerticalPanelResize(BOTTOM_TERMINAL_CONFIG);
 
   const scope = useBottomTerminalScope();
+  const commandCenter = useCommandCenterMode();
   const scopeKey = scope.groupKey;
   const shellDropdownGroups = useMemo(
     () => toShellDropdownGroups(extraDropdownGroups),
@@ -108,6 +110,10 @@ export function BottomTerminalSplit({
 
   const handleCollapse = useCallback(() => {
     setCollapsed(true);
+  }, [setCollapsed]);
+
+  const handleReveal = useCallback(() => {
+    setCollapsed(false);
   }, [setCollapsed]);
 
   const ctxValue = useMemo(() => ({ collapsed, setCollapsed }), [collapsed, setCollapsed]);
@@ -161,6 +167,8 @@ export function BottomTerminalSplit({
             <TerminalManager
               key={scopeKey}
               onCollapse={handleCollapse}
+              // The Command Center dock also holds shell sessions and reveals itself.
+              onReveal={commandCenter ? undefined : handleReveal}
               defaultScope={scope}
               extraDropdownGroups={shellDropdownGroups}
               containerEnabled={containerEnabled}

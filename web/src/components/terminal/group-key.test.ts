@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { projectGroupKey, worktreeFromGroupKey } from './group-key';
+import { projectGroupKey, shellGroupKey, worktreeFromGroupKey } from './group-key';
 
 describe('group key', () => {
   describe('worktreeFromGroupKey', () => {
@@ -10,7 +10,7 @@ describe('group key', () => {
     });
 
     it('[FR-TERMINAL-1050] should read the worktree of a shell group key', () => {
-      const groupKey = `shell:${projectGroupKey('engy', 'initial', 'feature')}`;
+      const groupKey = shellGroupKey(projectGroupKey('engy', 'initial', 'feature'));
 
       expect(worktreeFromGroupKey(groupKey)).toBe('feature');
     });

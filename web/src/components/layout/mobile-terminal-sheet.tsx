@@ -9,6 +9,7 @@ import {
   useBottomTerminalScope,
 } from '@/components/terminal/use-terminal-scope';
 import { useOptionalTab } from '@/components/tabs/tab-context';
+import { isShellGroupKey } from '@/components/terminal/group-key';
 import { TerminalManager } from '@/components/terminal/terminal-manager';
 import {
   useCommandCenterMode,
@@ -31,10 +32,11 @@ interface SheetBaseProps extends MobileTerminalSheetProps {
   // The RIGHT (Claude) terminal owns the external terminal:open/inject events.
   // The shell terminal opts out so a single manager handles them on mobile.
   disableExternalEvents?: boolean;
-  queueExternalEvents?: boolean;
+  queuedEvents: readonly string[];
 }
 
-const QUEUED_EVENT_NAMES = ['terminal:open', 'terminal:inject'] as const;
+const CLAUDE_QUEUED_EVENTS = ['terminal:open', 'terminal:inject', 'terminal:focus'] as const;
+const SHELL_QUEUED_EVENTS = ['terminal:focus'] as const;
 
 // True once the element's box has held still for a few consecutive frames
 // while `open`. The terminal dock must not mount into a still-moving sheet:
@@ -88,7 +90,7 @@ function MobileTerminalSheetBase({
   scope,
   title,
   disableExternalEvents,
-  queueExternalEvents,
+  queuedEvents,
   extraDropdownGroups,
   containerEnabled,
 }: SheetBaseProps) {
@@ -111,11 +113,12 @@ function MobileTerminalSheetBase({
   const supportsCommandCenter = overlayKind === 'terminal';
   const showCommandCenter = supportsCommandCenter && commandCenterMode;
 
-  // Queue terminal:open / terminal:inject events fired while the sheet is
-  // closed (TerminalManager unmounted, so no listener exists) and replay
-  // them once the sheet — and its TerminalManager — has mounted.
+  // Queue terminal events fired while the sheet is closed (TerminalManager
+  // unmounted, so no listener exists) and replay them once the sheet — and its
+  // TerminalManager — has mounted.
   const pendingRef = useRef<Array<{ name: string; detail: unknown }>>([]);
   const openRef = useRef(open);
+  const managerMountedRef = useRef(false);
   useEffect(() => {
     openRef.current = open;
   }, [open]);
@@ -134,10 +137,9 @@ function MobileTerminalSheetBase({
   }, [scopeKey, closeOverlay]);
 
   useEffect(() => {
-    if (!queueExternalEvents) return;
     function makeHandler(name: string) {
       return (e: Event) => {
-        if (openRef.current) return;
+        if (managerMountedRef.current) return;
         // Events come from the visible UI, so an inactive tab never queues —
         // without this, an event without a tabId would sit in every hidden
         // tab's queue and replay stale whenever that tab is activated.
@@ -150,11 +152,16 @@ function MobileTerminalSheetBase({
         // only the tab that fired the event may respond. Mirrors TerminalManager.
         const tabId = (detail as { tabId?: string | null } | undefined)?.tabId;
         if (tabId !== undefined && tabId !== myTabId) return;
+        if (name === 'terminal:focus') {
+          const { groupKey } = detail as { groupKey?: string };
+          const ownerKind = isShellGroupKey(groupKey) ? 'shell' : 'terminal';
+          if (ownerKind !== overlayKind) return;
+        }
         pendingRef.current.push({ name, detail });
         openOverlay(overlayKind);
       };
     }
-    const handlers = QUEUED_EVENT_NAMES.map((name) => {
+    const handlers = queuedEvents.map((name) => {
       const h = makeHandler(name);
       window.addEventListener(name, h);
       return [name, h] as const;
@@ -162,11 +169,20 @@ function MobileTerminalSheetBase({
     return () => {
       for (const [name, h] of handlers) window.removeEventListener(name, h);
     };
-  }, [queueExternalEvents, openOverlay, overlayKind, myTabId, isTabActive]);
+  }, [queuedEvents, openOverlay, overlayKind, myTabId, isTabActive]);
 
   const contentRef = useRef<HTMLDivElement>(null);
   const settled = useSettledWhenOpen(open, contentRef);
   const managerMounted = open && settled;
+
+  useEffect(() => {
+    managerMountedRef.current = managerMounted;
+  }, [managerMounted]);
+
+  // Tied to the overlay, not `open`, so a hidden tab keeps its queue.
+  useEffect(() => {
+    if (overlay !== overlayKind) pendingRef.current = [];
+  }, [overlay, overlayKind]);
 
   useEffect(() => {
     if (!managerMounted || pendingRef.current.length === 0) return;
@@ -263,14 +279,15 @@ export function MobileTerminalSheet(props: MobileTerminalSheetProps) {
       overlayKind="terminal"
       scope={scope}
       title="Claude"
-      queueExternalEvents
+      queuedEvents={CLAUDE_QUEUED_EVENTS}
       {...props}
     />
   );
 }
 
 // BOTTOM terminal (plain shell) — opened from the floating toggle. Uses the
-// shell scope and opts out of external events (the Claude sheet owns those).
+// shell scope and opts out of external events (the Claude sheet owns those),
+// except terminal:focus for a shell session.
 export function MobileShellTerminalSheet(props: MobileTerminalSheetProps) {
   const scope = useBottomTerminalScope();
   return (
@@ -279,6 +296,7 @@ export function MobileShellTerminalSheet(props: MobileTerminalSheetProps) {
       scope={scope}
       title="Shell"
       disableExternalEvents
+      queuedEvents={SHELL_QUEUED_EVENTS}
       {...props}
     />
   );
