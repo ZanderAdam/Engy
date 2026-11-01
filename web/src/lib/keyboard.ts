@@ -15,6 +15,18 @@ export function isTypingTarget(): boolean {
   );
 }
 
+export function isTerminalFocused(): boolean {
+  return document.activeElement?.closest('.xterm') != null;
+}
+
+/** A collapsed terminal keeps DOM focus, so keys would go on reaching its PTY. */
+export function releaseTerminalFocus(within: ParentNode = document): void {
+  const focused = document.activeElement;
+  if (isTerminalFocused() && focused instanceof HTMLElement && within.contains(focused)) {
+    focused.blur();
+  }
+}
+
 /**
  * True when Enter or space was pressed on a `role="button"`/`role="tab"` row
  * itself, not on a control nested inside it. React events — including those

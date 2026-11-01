@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { RiTerminalLine, RiCloseLine } from '@remixicon/react';
+import { RiTerminalLine, RiCloseLine, RiPauseLine } from '@remixicon/react';
 import type { IDockviewPanelHeaderProps } from 'dockview';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -17,6 +17,7 @@ import {
 import { resolveRenameSeed, resolveTerminalLabel } from './terminal-label';
 import { useSessionBranch } from './use-session-branch';
 import { AttentionBadge } from './attention-badge';
+import { canParkTerminal, useParkSession } from './use-park-session';
 
 function collapseLabel(label: string): string {
   const parts = label.split('/').filter(Boolean);
@@ -31,6 +32,7 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const { renameTerminal } = useTerminalDock();
   const canHover = useCanHover();
+  const parkSession = useParkSession();
 
   useEffect(() => {
     const disposable = api.onDidParametersChange(() => {
@@ -82,6 +84,8 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
     />
   );
 
+  const canPark = canParkTerminal(tab);
+
   const labelSpan = (
     <span
       className="flex min-w-0 flex-col justify-center gap-0.5"
@@ -121,14 +125,31 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
             <TooltipContent side="bottom">
               <p className="font-mono">{scopeLabel}</p>
               <p className="font-mono opacity-70">{tab.scope.workingDir}</p>
+              {tab.brief && <p className="max-w-72 pt-1">{tab.brief}</p>}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
       )}
       {isStoppedTerminal(tab.status) && (
         <span className="shrink-0 text-[9px] text-muted-foreground">
-          {tab.status === 'dormant' ? '[dormant]' : '[exited]'}
+          {tab.status === 'dormant' ? '[parked]' : '[exited]'}
         </span>
+      )}
+      {canPark && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            parkSession(tab.sessionId);
+          }}
+          className={cn(
+            'ml-auto shrink-0 rounded-sm p-0.5 hover:bg-muted',
+            canHover ? 'opacity-0 group-hover:opacity-100' : 'opacity-100',
+          )}
+          aria-label="Park terminal"
+          title="Park: stop the agent and keep the tab"
+        >
+          <RiPauseLine className="size-[10px]" />
+        </button>
       )}
       <button
         onClick={(e) => {
@@ -136,7 +157,8 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
           setConfirmCloseOpen(true);
         }}
         className={cn(
-          'ml-auto shrink-0 rounded-sm p-0.5 hover:bg-muted',
+          'shrink-0 rounded-sm p-0.5 hover:bg-muted',
+          !canPark && 'ml-auto',
           canHover ? 'opacity-0 group-hover:opacity-100' : 'opacity-100',
         )}
         aria-label="Close terminal"

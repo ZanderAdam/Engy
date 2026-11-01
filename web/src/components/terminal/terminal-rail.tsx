@@ -10,6 +10,7 @@ import {
   RiGitBranchLine,
   RiLayoutGridLine,
   RiListUnordered,
+  RiPauseLine,
   RiTerminalLine,
 } from '@remixicon/react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -46,6 +47,7 @@ import type { TerminalWorktreeGroup } from './worktree-grouping';
 import {
   railItems,
   railSections,
+  splitParkedTabs,
   type TerminalRailGroupItem,
   type TerminalRailSection,
 } from './rail-order';
@@ -64,6 +66,7 @@ import {
 import { setWorktreeGrouping, useWorktreeGrouping } from './use-worktree-grouping';
 import { setRailGroupCollapsed, useCollapsedRailGroups } from './use-collapsed-rail-groups';
 import { CollapsibleRailGroup } from './collapsible-rail-group';
+import { canParkTerminal, useParkSession } from './use-park-session';
 import { randomId } from '@/lib/random-id';
 
 interface RailDragHandlers extends RailDropHandlers {
@@ -127,6 +130,8 @@ export function TerminalRail({
   const [closingTab, setClosingTab] = useState<TerminalTab | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<RailDropTarget | null>(null);
+  const [parkedOpen, setParkedOpen] = useState(false);
+  const parkSession = useParkSession();
   const draggingIdRef = useRef<string | null>(null);
   const byWorktree = useWorktreeGrouping();
   const collapsedGroups = useCollapsedRailGroups();
@@ -166,7 +171,8 @@ export function TerminalRail({
   const ctrlButton =
     'flex size-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground';
 
-  const sections = railSections(tabs, commandCenter, byWorktree, scope.groupKey);
+  const { liveTabs, parkedTabs } = splitParkedTabs(tabs);
+  const sections = railSections(liveTabs, commandCenter, byWorktree, scope.groupKey);
 
   function setRailGroup(sessionIds: string[], group: TerminalRailGroup | null) {
     window.dispatchEvent(
@@ -483,11 +489,25 @@ export function TerminalRail({
           onClick={() => focusSession(tab.sessionId)}
           onDoubleClick={() => setEditingId(tab.sessionId)}
           aria-current={tab.sessionId === activeId || undefined}
-          title="Double-click to rename"
+          title={tab.brief ?? 'Double-click to rename'}
           className="flex min-w-0 flex-1 items-start px-2 py-1.5 text-left text-xs"
         >
           <TerminalSessionLabel tab={tab} iconBox />
         </button>
+        {canParkTerminal(tab) && (
+          <button
+            type="button"
+            onClick={() => parkSession(tab.sessionId)}
+            aria-label={`Park terminal ${tab.scope.scopeLabel}`}
+            title="Park: stop the agent and keep the tab"
+            className={cn(
+              'mt-1 shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground',
+              canHover ? 'opacity-0 group-hover:opacity-100' : 'opacity-100',
+            )}
+          >
+            <RiPauseLine className="size-3" />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setClosingTab(tab)}
@@ -499,6 +519,55 @@ export function TerminalRail({
         >
           <RiCloseLine className="size-3" />
         </button>
+      </div>
+    );
+  }
+
+  function renderParkedList() {
+    if (parkedTabs.length === 0) return null;
+    return (
+      <div className="mt-auto pt-1">
+        <CollapsibleRailGroup
+          accessibleName="parked terminals"
+          tabs={parkedTabs}
+          open={parkedOpen}
+          onOpenChange={setParkedOpen}
+          label={
+            <>
+              <RiPauseLine className="size-3 shrink-0" />
+              <span className="truncate">Parked</span>
+            </>
+          }
+          headerClassName="gap-1.5 pt-1 pb-0.5 text-[11px] font-medium text-muted-foreground"
+          contentClassName="ml-3 flex flex-col gap-0.5 border-l border-border/60 pl-1"
+        >
+          {parkedTabs.map(renderExpandedRow)}
+        </CollapsibleRailGroup>
+      </div>
+    );
+  }
+
+  function renderParkedDots() {
+    if (parkedTabs.length === 0) return null;
+    return (
+      <div className="mt-auto flex flex-col items-center gap-1.5">
+        {parkedOpen && parkedTabs.map(renderDot)}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setParkedOpen(!parkedOpen)}
+              aria-label={`${parkedOpen ? 'Hide' : 'Show'} ${parkedTabs.length} parked terminals`}
+              aria-expanded={parkedOpen}
+              className="flex size-6 items-center justify-center rounded-[5px] text-[11px] tabular-nums text-muted-foreground hover:bg-muted"
+            >
+              {parkedOpen ? <RiPauseLine className="size-3" /> : parkedTabs.length}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="left" className="text-xs">
+            Parked
+          </TooltipContent>
+        </Tooltip>
       </div>
     );
   }
@@ -663,9 +732,13 @@ export function TerminalRail({
             ) : (
               sections.map((section) => renderSection(section, false))
             )}
+            {renderParkedList()}
           </div>
         ) : (
-          sections.map((section) => renderSection(section, true))
+          <>
+            {sections.map((section) => renderSection(section, true))}
+            {renderParkedDots()}
+          </>
         )}
       </div>
 
@@ -726,6 +799,7 @@ function TerminalRailDot({
       </TooltipTrigger>
       <TooltipContent side="left" className="max-w-72">
         <TerminalSessionLabel tab={tab} />
+        {tab.brief && <p className="pt-1 text-xs">{tab.brief}</p>}
       </TooltipContent>
     </Tooltip>
   );

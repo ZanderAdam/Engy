@@ -2,7 +2,7 @@
 
 import { RiInbox2Line } from '@remixicon/react';
 import { trpc } from '@/lib/trpc';
-import { useOpenInbox } from './use-go-to-inbox';
+import { useOpenInbox } from '@/components/tabs/use-go-to-chords';
 
 const MAX_BADGE_COUNT = 99;
 

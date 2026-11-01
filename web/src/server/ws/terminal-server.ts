@@ -7,6 +7,8 @@ import type {
   TerminalResizeCmd,
   TerminalReconnectCmd,
   TerminalErrorEvent,
+  TerminalExitEvent,
+  TerminalKillCmd,
   TerminalSyncEvent,
   TerminalActivityEvent,
   TerminalPongEvent,
@@ -26,6 +28,7 @@ import {
   recordHumanInput,
   failWorkerDispatches,
   isTrackedWorker,
+  markSessionDormant,
   recordWorkerOutput,
 } from '../terminal-dispatch';
 import {
@@ -185,28 +188,14 @@ function respawnLostSession(
   daemon.send(JSON.stringify(buildRespawnCmd(sessionId, meta)));
   state.daemonTerminalSessions.ids.add(sessionId);
   const wasDormant = meta.dormant;
-  if (wasDormant) delete meta.dormant;
+  if (wasDormant) {
+    delete meta.dormant;
+    delete meta.brief;
+  }
   const wasQuiet = meta.activityState !== 'active';
   if (meta.agentType) meta.activityState = 'active';
   if (wasDormant || trackedDirReset || wasQuiet) persistTerminalSession(sessionId, meta);
   broadcastTerminalSessionsChange('created', sessionId, meta.groupKey);
-}
-
-/**
- * A session the daemon lost while nobody was watching. The meta (and its DB
- * row) is kept so the tab survives the daemon restart and the user can restore
- * it deliberately — restoring resumes the agent conversation, which is not
- * something to do behind their back for every terminal they ever left open.
- */
-function markSessionDormant(sessionId: string, meta: TerminalSessionMeta): void {
-  meta.dormant = true;
-  // The PTY is gone; a leftover waiting/done badge would keep asking for
-  // attention no restore will ever satisfy.
-  meta.activityState = 'idle';
-  persistTerminalSession(sessionId, meta);
-  if (meta.projectSlug) {
-    broadcastTerminalActivityChange({ sessionId, projectSlug: meta.projectSlug, state: 'idle' });
-  }
 }
 
 /**
@@ -319,6 +308,7 @@ async function handleTerminalConnection(
   const projectSlug = params.get('projectSlug') ?? undefined;
   const worktreeBranch = params.get('worktreeBranch') ?? undefined;
   const resumedFrom = params.get('resumedFrom') ?? undefined;
+  const restore = params.get('restore') === '1';
 
   if (!sessionId || !workingDir) {
     ws.close(1008, 'Missing sessionId or workingDir');
@@ -535,9 +525,22 @@ async function handleTerminalConnection(
       // Retain meta so the sync handler can respawn the session when the daemon reconnects.
       console.log(`[terminal] reconnect path but no daemon — keeping meta sid=${short}`);
       sendTerminalError(ws, 'No daemon connected');
+    } else if (storedMeta.dormant && !restore) {
+      // A socket that missed the parked frame (laptop asleep) reconnects here;
+      // only the user's Restore may resume the agent.
+      console.log(`[terminal] refusing reconnect to parked session sid=${short}`);
+      sendRaw(
+        ws,
+        JSON.stringify({
+          t: 'exit',
+          sessionId,
+          exitCode: 0,
+          parked: true,
+        } satisfies TerminalExitEvent),
+      );
+      ws.close(1001, 'Session parked');
     } else if (isSessionLost(state, sessionId, storedMeta)) {
-      // The PTY is gone (daemon restart). Connecting to a dormant session IS
-      // the restore — the dock only opens this socket once the user asks for it.
+      // The PTY is gone (daemon restart).
       console.log(`[terminal] restoring lost session sid=${short}`);
       respawnLostSession(state, daemon, sessionId, storedMeta);
     } else {
@@ -698,7 +701,10 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
 
           // Respawn or clean up sessions the daemon no longer has
           for (const [sessionId, meta] of state.terminalSessionMeta) {
-            if (daemonSessionIds.has(sessionId)) {
+            if (daemonSessionIds.has(sessionId) && meta.dormant) {
+              // The park's kill died with the relay socket.
+              ws.send(JSON.stringify({ t: 'kill', sessionId } satisfies TerminalKillCmd));
+            } else if (daemonSessionIds.has(sessionId)) {
               // Session survived on the daemon, but resizes sent while the relay
               // was down were dropped — the browser's guard already recorded them
               // as sent, so it will never resend. Re-assert the last known size.
@@ -823,12 +829,14 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
 
       // Exit messages start with {"t":"exit" — no data field to confuse.
       const isExit = str.startsWith('{"t":"exit"');
+      // A natural exit can cross a park's kill on the wire; the parked tab stays.
+      const isDormantExit = isExit && state.terminalSessionMeta.get(sessionId)?.dormant === true;
       if (isExit) {
         // Whatever the server-side state, the daemon no longer has this PTY —
-        // drop it from the alive set (and the SQLite mirror) unconditionally
+        // drop it from the alive set (and, unless dormant, the SQLite mirror)
         // so a later connect can't adopt a dead session.
         state.daemonTerminalSessions.ids.delete(sessionId);
-        deletePersistedTerminalSession(sessionId);
+        if (!isDormantExit) deletePersistedTerminalSession(sessionId);
       }
       // Skip the teardown when the session is already torn down (kill /
       // terminal_close ran destroyTerminalSession before the daemon's exit
@@ -836,6 +844,7 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
       // no groupKey context.
       if (
         isExit &&
+        !isDormantExit &&
         (state.terminalSessionMeta.has(sessionId) || state.terminalSessions.has(sessionId))
       ) {
         console.log(`[terminal-relay] Exit for session ${sessionId}, cleaning up meta and WS`);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback, useMemo } from 'react';
+import { useEffect, useCallback, useMemo, useRef } from 'react';
 import { RiArrowLeftSLine, RiArrowRightSLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
@@ -10,34 +10,8 @@ import { MobileFilesSheet } from './mobile-files-sheet';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { usePanelResize, type PanelConfig } from '@/lib/hooks/use-panel-resize';
-import { isTypingTarget } from '@/lib/keyboard';
-
-export interface ShortcutDef {
-  mod?: boolean;
-  ctrl?: boolean;
-  shift?: boolean;
-  key: string;
-}
-
-export function matchShortcut(def: ShortcutDef, e: KeyboardEvent): boolean {
-  if (def.mod && !(e.metaKey || e.ctrlKey)) return false;
-  if (def.ctrl && !e.ctrlKey) return false;
-  if (def.shift && !e.shiftKey) return false;
-  return e.key === def.key || e.key.toLowerCase() === def.key.toLowerCase();
-}
-
-export function shortcutKeys(def: ShortcutDef): string[] {
-  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
-  const keys: string[] = [];
-  if (def.mod) keys.push(isMac ? '⌘' : 'Ctrl');
-  if (def.ctrl) keys.push(isMac ? '⌃' : 'Ctrl');
-  if (def.shift) keys.push(isMac ? '⇧' : 'Shift');
-  keys.push(def.key.toUpperCase());
-  return keys;
-}
-
-export const DEFAULT_LEFT_SHORTCUT: ShortcutDef = { mod: true, shift: true, key: ',' };
-export const DEFAULT_RIGHT_SHORTCUT: ShortcutDef = { mod: true, shift: true, key: '.' };
+import { releaseTerminalFocus } from '@/lib/keyboard';
+import { shortcutKeys, useShortcut, type ShortcutId } from '@/lib/shortcuts';
 
 interface ThreePanelLayoutProps {
   left?: PanelConfig;
@@ -60,8 +34,8 @@ interface ThreePanelLayoutProps {
   onRightCollapsedChange?: (collapsed: boolean) => void;
   leftWidth?: number;
   leftWidthKey?: number;
-  leftShortcut?: ShortcutDef;
-  rightShortcut?: ShortcutDef;
+  leftShortcut?: ShortcutId;
+  rightShortcut?: ShortcutId;
   isMobile?: boolean;
   className?: string;
 }
@@ -158,8 +132,8 @@ export function ThreePanelLayout({
   onRightCollapsedChange,
   leftWidth: controlledLeftWidth,
   leftWidthKey,
-  leftShortcut = DEFAULT_LEFT_SHORTCUT,
-  rightShortcut = DEFAULT_RIGHT_SHORTCUT,
+  leftShortcut = 'toggleLeftPanel',
+  rightShortcut = 'toggleRightPanel',
   isMobile = false,
   className,
 }: ThreePanelLayoutProps) {
@@ -204,24 +178,28 @@ export function ThreePanelLayout({
   const leftKeys = useMemo(() => shortcutKeys(leftShortcut), [leftShortcut]);
   const rightKeys = useMemo(() => shortcutKeys(rightShortcut), [rightShortcut]);
 
-  useEffect(() => {
-    function handler(e: KeyboardEvent) {
-      if (!containerRef.current || containerRef.current.offsetWidth === 0) return;
+  const rightContentRef = useRef<HTMLDivElement>(null);
+  const isOnScreen = () => (containerRef.current?.offsetWidth ?? 0) > 0;
 
-      if (isTypingTarget()) return;
+  useShortcut(
+    leftShortcut,
+    () => {
+      if (isOnScreen()) setLeftCollapsed(!isLeftCollapsed);
+    },
+    !!leftPanel,
+  );
 
-      if (leftPanel && matchShortcut(leftShortcut, e)) {
-        e.preventDefault();
-        setLeftCollapsed(!isLeftCollapsed);
-      } else if (rightPanel && matchShortcut(rightShortcut, e)) {
-        e.preventDefault();
-        setRightCollapsed(!isRightCollapsed);
+  useShortcut(
+    rightShortcut,
+    () => {
+      if (!isOnScreen()) return;
+      if (!isRightCollapsed && rightContentRef.current) {
+        releaseTerminalFocus(rightContentRef.current);
       }
-    }
-
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [leftPanel, rightPanel, leftShortcut, rightShortcut, setLeftCollapsed, setRightCollapsed, containerRef, isLeftCollapsed, isRightCollapsed]);
+      setRightCollapsed(!isRightCollapsed);
+    },
+    !!rightPanel,
+  );
 
   const hasLeft = !!left;
   const hasRight = !!right;
@@ -390,6 +368,7 @@ export function ThreePanelLayout({
             }}
           >
             <div
+              ref={rightContentRef}
               className={cn('flex flex-col flex-shrink-0 min-h-0', !isRightCollapsed && 'border-l')}
               style={{ width: rightPanel.width }}
             >

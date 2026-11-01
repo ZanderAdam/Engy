@@ -1,7 +1,7 @@
 'use client';
 
 import { useSyncExternalStore } from 'react';
-import { railOrder, railSections } from './rail-order';
+import { railOrder, railSections, splitParkedTabs } from './rail-order';
 import type { TerminalTab } from './types';
 import { readCollapsedRailGroups, subscribeCollapsedRailGroups } from './use-collapsed-rail-groups';
 import { readWorktreeGrouping, subscribeWorktreeGrouping } from './use-worktree-grouping';
@@ -103,7 +103,10 @@ export function readNumberedTerminals(): TerminalTab[] {
     return numberedCache.tabs;
   }
   const tabs = visible
-    ? railOrder(railSections(visible.tabs, visible.commandCenter, byWorktree), collapsed)
+    ? railOrder(
+        railSections(splitParkedTabs(visible.tabs).liveTabs, visible.commandCenter, byWorktree),
+        collapsed,
+      )
     : [];
   numberedCache = { snapshot: visible, byWorktree, collapsed, tabs };
   return tabs;
@@ -118,6 +121,13 @@ function subscribeNumbered(listener: () => void): () => void {
   return () => {
     for (const unsubscribe of unsubscribers) unsubscribe();
   };
+}
+
+export function readActiveTerminalId(): string | null {
+  for (const snapshot of byKey.values()) {
+    if (snapshot.visible) return snapshot.activeId;
+  }
+  return null;
 }
 
 export function useNumberedTerminals(): TerminalTab[] {

@@ -19,21 +19,22 @@ import { VLink } from '@/components/tabs/virtual-link';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import {
-  ThreePanelLayout,
-  type ShortcutDef,
-  matchShortcut,
-} from '@/components/layout/three-panel-layout';
+import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
 import { MobileIdentityBar } from '@/components/layout/mobile-identity-bar';
 import { MobileOverlayProvider } from '@/components/layout/mobile-overlay-context';
 import { WorkspaceMobileTerminalToggle } from '@/components/layout/workspace-mobile-terminal-toggle';
+import { MobileTerminalShortcuts } from '@/components/layout/mobile-terminal-shortcuts';
+import { useShortcut } from '@/lib/shortcuts';
 import {
   MobileTerminalSheet,
   MobileShellTerminalSheet,
 } from '@/components/layout/mobile-terminal-sheet';
 import { TerminalPanel } from '@/components/terminal/terminal-panel';
 import { TerminalRail } from '@/components/terminal/terminal-rail';
-import { useTerminalNumberShortcut } from '@/components/terminal/terminal-number-shortcut';
+import {
+  jumpToTerminal,
+  useTerminalNumberShortcut,
+} from '@/components/terminal/terminal-number-shortcut';
 import { BottomTerminalSplit } from '@/components/terminal/bottom-terminal-split';
 import type { TerminalDropdownGroup, TerminalDropdownEntry } from '@/components/terminal/types';
 import { useTerminalLinkFocus } from '@/components/terminal/use-terminal-link-focus';
@@ -71,9 +72,6 @@ const TERMINAL_CONFIG = {
   storageKey: 'engy-terminal-width',
 } as const;
 
-const TERMINAL_SHORTCUT: ShortcutDef = { ctrl: true, key: '`' };
-const QUICK_CAPTURE_SHORTCUT: ShortcutDef = { mod: true, shift: true, key: 'm' };
-
 const tabs = [
   { label: 'Overview', segment: '' },
   { label: 'Tasks', segment: 'tasks' },
@@ -109,17 +107,8 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     return () => window.removeEventListener('terminal:active-changed', onActiveChanged);
   }, [tabId]);
 
-  useEffect(() => {
-    function handler(e: KeyboardEvent) {
-      if (matchShortcut(QUICK_CAPTURE_SHORTCUT, e)) {
-        e.preventDefault();
-        setQuickCaptureOpen(true);
-      }
-    }
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, []);
-
+  useShortcut('quickCapture', () => setQuickCaptureOpen(true));
+  useShortcut('focusTerminal', jumpToTerminal);
   useTerminalNumberShortcut();
 
   const handleCollapse = useCallback(() => {
@@ -645,7 +634,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
           right={TERMINAL_CONFIG}
           rightCollapsed={terminalCollapsed}
           onRightCollapsedChange={setTerminalCollapsed}
-          rightShortcut={TERMINAL_SHORTCUT}
+          rightShortcut="toggleTerminal"
           isMobile={isMobile}
           rightRail={
             !isMobile
@@ -697,6 +686,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       >
         {isMobile ? (
           <MobileOverlayProvider>
+            <MobileTerminalShortcuts />
             {content}
             {/* RIGHT terminal (Claude) — opened from the mobile header */}
             <MobileTerminalSheet

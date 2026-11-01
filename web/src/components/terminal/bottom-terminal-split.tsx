@@ -2,10 +2,9 @@
 
 import { useEffect, useCallback, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
-import { isTypingTarget } from '@/lib/keyboard';
 import { useTabId } from '@/components/tabs/tab-context';
 import type { TerminalRevealEvent } from '@/components/terminal/terminal-link';
-import { matchShortcut, type ShortcutDef } from '@/components/layout/three-panel-layout';
+import { useShortcut } from '@/lib/shortcuts';
 import { BottomTerminalProvider } from '@/components/layout/workspace-terminal-context';
 import {
   useVerticalPanelResize,
@@ -16,8 +15,6 @@ import { useBottomTerminalScope, deriveShellScope } from './use-terminal-scope';
 import { TerminalManager } from './terminal-manager';
 import { BottomTerminalToggle } from './bottom-terminal-toggle';
 import type { TerminalDropdownEntry, TerminalDropdownGroup } from './types';
-
-const BOTTOM_TERMINAL_SHORTCUT: ShortcutDef = { ctrl: true, key: 'j' };
 
 const BOTTOM_TERMINAL_CONFIG: VerticalPanelConfig = {
   defaultHeight: 240,
@@ -95,20 +92,7 @@ export function BottomTerminalSplit({
     localStorage.setItem(COLLAPSED_STORAGE_KEY, collapsed ? 'false' : 'true');
   }, [collapsed]);
 
-  // Keyboard shortcut: Ctrl+J
-  useEffect(() => {
-    function handler(e: KeyboardEvent) {
-      if (isTypingTarget()) return;
-
-      if (matchShortcut(BOTTOM_TERMINAL_SHORTCUT, e)) {
-        e.preventDefault();
-        setCollapsed(!collapsed);
-      }
-    }
-
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [collapsed, setCollapsed]);
+  useShortcut('toggleBottomTerminal', () => setCollapsed(!collapsed), !isMobile);
 
   const tabId = useTabId();
   useEffect(() => {

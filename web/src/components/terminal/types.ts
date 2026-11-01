@@ -9,8 +9,8 @@ import {
 
 export type TerminalScopeType = 'project' | 'workspace' | 'dir' | 'worktree';
 
-// 'dormant' = the daemon restarted while nobody was attached, so the tab is a
-// restorable placeholder: it holds no socket until the user restores it.
+// 'dormant' = the user parked the session, or the daemon restarted while nobody
+// was attached. The tab is a placeholder with no socket until the user restores it.
 export type TerminalStatus = 'connecting' | 'active' | 'exited' | 'error' | 'dormant';
 
 export type TerminalActivityState = 'idle' | 'active' | 'waiting' | 'done';
@@ -114,6 +114,12 @@ export interface TerminalTab {
   status: TerminalStatus;
   /** User-made rail group; stored on the server so it is the same on every device. */
   railGroup?: TerminalRailGroup;
+  /** Summary of the work, kept when the session was parked. */
+  brief?: string;
+  /** The user asked to resume this dormant session; its next connect restores it. */
+  restore?: boolean;
+  /** Terminal id of the agent that opened this session. */
+  spawnedBy?: string;
   activityState?: TerminalActivityState;
   // Subtitle under scopeLabel — from OSC 0/2 escapes when a browser is
   // attached, or seeded from the server's hook-derived lastTitle otherwise.

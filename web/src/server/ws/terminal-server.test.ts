@@ -695,6 +695,29 @@ describe('Terminal WebSocket Server', () => {
   });
 
   describe('daemon sync', () => {
+    it('[FR-TERMINAL-1070] should keep a dormant session when its daemon exit arrives', async () => {
+      const meta = {
+        scopeType: 'workspace' as const,
+        scopeLabel: 'test',
+        workingDir: '/tmp',
+        dormant: true,
+        cols: 80,
+        rows: 24,
+      };
+      state.terminalSessionMeta.set('parked-sess', meta);
+      persistTerminalSession('parked-sess', meta);
+      const daemonWs = await connectDaemonRelay(port, false);
+
+      daemonWs.send(JSON.stringify({ t: 'exit', sessionId: 'parked-sess', exitCode: 0 }));
+
+      await vi.waitFor(() => {
+        expect(state.daemonTerminalSessions.ids.has('parked-sess')).toBe(false);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(state.terminalSessionMeta.has('parked-sess')).toBe(true);
+      expect(ctx.db.select().from(terminalSessionsTable).all()).toHaveLength(1);
+    });
+
     it('[FR-TERMINAL-500] should mark stale sessions with no browser connected dormant', async () => {
       // Pre-populate meta for a session the daemon has lost
       state.terminalSessionMeta.set('stale-sess', {
@@ -765,6 +788,49 @@ describe('Terminal WebSocket Server', () => {
       });
     });
 
+    it('[FR-TERMINAL-1072] should refuse a connect for a dormant session without restore', async () => {
+      state.terminalSessionMeta.set('parked-conn', {
+        scopeType: 'project',
+        scopeLabel: 'my-proj',
+        workingDir: '/tmp/proj',
+        command: 'claude --session-id parked-conn',
+        dormant: true,
+        cols: 120,
+        rows: 40,
+      });
+      const daemonWs = await connectDaemonRelay(port, false);
+      const daemonMessages: string[] = [];
+      daemonWs.on('message', (raw) => daemonMessages.push(raw.toString()));
+      const params = new URLSearchParams({ sessionId: 'parked-conn', workingDir: '/tmp/proj' });
+      const browser = new WebSocket(`ws://127.0.0.1:${port}/ws/terminal?${params}`);
+      openClients.push(browser);
+      const frames: string[] = [];
+      browser.on('message', (raw) => frames.push(raw.toString()));
+
+      await vi.waitFor(() => expect(browser.readyState).toBe(WebSocket.CLOSED));
+
+      expect(JSON.parse(frames[0])).toMatchObject({ t: 'exit', parked: true });
+      expect(daemonMessages).toEqual([]);
+      expect(state.terminalSessionMeta.get('parked-conn')?.dormant).toBe(true);
+    });
+
+    it('[FR-TERMINAL-1073] should re-send the kill for a dormant session the daemon still has', async () => {
+      state.terminalSessionMeta.set('parked-live', {
+        scopeType: 'project',
+        scopeLabel: 'my-proj',
+        workingDir: '/tmp/proj',
+        dormant: true,
+        cols: 120,
+        rows: 40,
+      });
+      const daemonWs = await connectDaemonRelay(port, false);
+      const killPromise = waitForMessage(daemonWs);
+
+      daemonWs.send(JSON.stringify({ t: 'sync', sessionIds: ['parked-live'] }));
+
+      expect(JSON.parse(await killPromise)).toEqual({ t: 'kill', sessionId: 'parked-live' });
+    });
+
     it('[FR-TERMINAL-510] should spawn with --resume when a browser connects for a dormant session', async () => {
       state.terminalSessionMeta.set('dormant-sess', {
         scopeType: 'project',
@@ -780,6 +846,7 @@ describe('Terminal WebSocket Server', () => {
       const spawnPromise = waitForMessage(daemonWs);
 
       await connectBrowser(port, {
+        restore: '1',
         sessionId: 'dormant-sess',
         workingDir: '/tmp/proj',
         scopeType: 'project',
@@ -816,6 +883,7 @@ describe('Terminal WebSocket Server', () => {
       const daemonWs = await connectDaemonRelay(port, false);
       const spawnPromise = waitForMessage(daemonWs);
       await connectBrowser(port, {
+        restore: '1',
         sessionId: 'dormant-agent',
         workingDir: '/tmp/proj',
         scopeType: 'project',

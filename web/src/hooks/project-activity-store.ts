@@ -8,27 +8,33 @@ export interface ProjectActivityCounts {
 
 export interface ActivitySnapshot {
   sessionId: string;
+  workspaceSlug?: string;
   projectSlug?: string;
   state: TerminalActivityState;
 }
 
 export const EMPTY_COUNTS: ProjectActivityCounts = { active: 0, waiting: 0, done: 0 };
 
+// Project slugs repeat across workspaces (every workspace has `default`).
+function projectKey(workspaceSlug: string, projectSlug: string): string {
+  return `${workspaceSlug}/${projectSlug}`;
+}
+
 // Daemon-computed terminal activity, keyed by session, rolled up per project.
 // Module-level so every badge shares one store; driven by useProjectActivityFeed.
-const bySession = new Map<string, { projectSlug: string; state: TerminalActivityState }>();
+const bySession = new Map<string, { projectKey: string; state: TerminalActivityState }>();
 const listeners = new Set<() => void>();
 let rollup = new Map<string, ProjectActivityCounts>();
 
 function recompute() {
   const next = new Map<string, ProjectActivityCounts>();
-  for (const { projectSlug, state } of bySession.values()) {
+  for (const { projectKey: key, state } of bySession.values()) {
     if (state === 'idle') continue;
-    const c = next.get(projectSlug) ?? { ...EMPTY_COUNTS };
+    const c = next.get(key) ?? { ...EMPTY_COUNTS };
     if (state === 'active') c.active++;
     else if (state === 'waiting') c.waiting++;
     else if (state === 'done') c.done++;
-    next.set(projectSlug, c);
+    next.set(key, c);
   }
   rollup = next;
   for (const l of listeners) l();
@@ -39,17 +45,23 @@ function recompute() {
 export function seed(sessions: ActivitySnapshot[]): void {
   bySession.clear();
   for (const s of sessions) {
-    if (s.projectSlug) bySession.set(s.sessionId, { projectSlug: s.projectSlug, state: s.state });
+    if (s.workspaceSlug && s.projectSlug) {
+      bySession.set(s.sessionId, {
+        projectKey: projectKey(s.workspaceSlug, s.projectSlug),
+        state: s.state,
+      });
+    }
   }
   recompute();
 }
 
 export function apply(
   sessionId: string,
+  workspaceSlug: string,
   projectSlug: string,
   state: TerminalActivityState,
 ): void {
-  bySession.set(sessionId, { projectSlug, state });
+  bySession.set(sessionId, { projectKey: projectKey(workspaceSlug, projectSlug), state });
   recompute();
 }
 
@@ -64,6 +76,9 @@ export function subscribe(listener: () => void): () => void {
   };
 }
 
-export function getProjectCounts(projectSlug: string): ProjectActivityCounts {
-  return rollup.get(projectSlug) ?? EMPTY_COUNTS;
+export function getProjectCounts(
+  workspaceSlug: string,
+  projectSlug: string,
+): ProjectActivityCounts {
+  return rollup.get(projectKey(workspaceSlug, projectSlug)) ?? EMPTY_COUNTS;
 }

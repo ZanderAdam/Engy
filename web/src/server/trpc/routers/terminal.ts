@@ -19,6 +19,7 @@ import {
   disconnectWorker,
   failQueuedDispatches,
   listWorkers,
+  parkTerminalSession,
   setDispatchOptOut,
   setOrchestrator,
   spawnAgentTerminal,
@@ -26,6 +27,7 @@ import {
 import { coderWorkspaceForSession } from '../../terminal-coder-workspace';
 import { findProject, spawnScope, workspaceRepos } from '../../terminal-spawn-scope';
 import { getWorkspaceDir } from '../../engy-dir/init';
+import { readParkBrief } from '../../hooks/brief';
 import { deriveMcpOrigin } from '../../terminal-link';
 import { isAgentActive, isAgentTypeId } from '@/lib/agent-types';
 import { listSessionHistory, liveHistoryKeys } from '../../ws/terminal-session-history';
@@ -160,6 +162,49 @@ export const terminalRouter = router({
         });
       }
       destroyTerminalSession(state, input.sessionId);
+      return { ok: true };
+    }),
+
+  // A dormant Claude session restores with `--resume`, so parking only has to
+  // stop the PTY. Other agents have no id to resume, and an agent-spawned
+  // terminal belongs to its caller.
+  parkSession: publicProcedure
+    .input(z.object({ sessionId: z.string() }))
+    .mutation(async ({ input }) => {
+      const state = getAppState();
+      const meta = state.terminalSessionMeta.get(input.sessionId);
+      if (!meta) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Terminal session not found' });
+      }
+      if (meta.dormant) return { ok: true };
+      if (meta.agentType !== 'claude' || meta.spawnedBy) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Only a Claude terminal you opened yourself can be parked',
+        });
+      }
+      const { transcriptPath } = meta;
+      if (!transcriptPath) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Nothing to park yet: wait for the first agent reply, then park',
+        });
+      }
+      const brief = await readParkBrief(
+        transcriptPath,
+        meta,
+        state,
+        coderWorkspaceForSession(meta),
+      );
+      // A second park, a close or a restore can land during the read.
+      const current = state.terminalSessionMeta.get(input.sessionId);
+      if (current !== meta || meta.dormant) return { ok: true };
+      if (!parkTerminalSession(state, input.sessionId, meta, brief)) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'No daemon connected, so the session cannot stop. Start the daemon and retry.',
+        });
+      }
       return { ok: true };
     }),
 

@@ -13,11 +13,14 @@ import {
   type ProjectActivityCounts,
 } from './project-activity-store';
 
-/** Per-project activity counts for one project. Re-renders on live updates. */
-export function useProjectActivity(projectSlug: string | undefined): ProjectActivityCounts {
+export function useProjectActivity(
+  workspaceSlug: string | undefined,
+  projectSlug: string | undefined,
+): ProjectActivityCounts {
   return useSyncExternalStore(
     subscribe,
-    () => (projectSlug ? getProjectCounts(projectSlug) : EMPTY_COUNTS),
+    () =>
+      workspaceSlug && projectSlug ? getProjectCounts(workspaceSlug, projectSlug) : EMPTY_COUNTS,
     () => EMPTY_COUNTS,
   );
 }
@@ -36,9 +39,8 @@ function seedFromSnapshot(): void {
 /**
  * Drives the project-activity store: seed from the snapshot endpoint on mount
  * and on every events-socket (re)connect — deltas broadcast while disconnected
- * are lost, so the snapshot is the only way to heal. Mount exactly once inside
- * the workspace layout — every <ProjectActivityBadge>
- * reads from the shared store.
+ * are lost, so the snapshot is the only way to heal. Mount once per workspace
+ * layout: every <ProjectActivityBadge> reads from the shared store.
  */
 export function useProjectActivityFeed(): void {
   useEffect(seedFromSnapshot, []);
@@ -47,8 +49,13 @@ export function useProjectActivityFeed(): void {
   useOnServerEvent(
     'TERMINAL_ACTIVITY_CHANGE',
     useCallback((p) => {
-      if (p.removed) remove(p.sessionId);
-      else if (p.state && p.projectSlug) apply(p.sessionId, p.projectSlug, p.state);
+      if (p.removed) {
+        remove(p.sessionId);
+        return;
+      }
+      if (p.state && p.sessionWorkspaceSlug && p.projectSlug) {
+        apply(p.sessionId, p.sessionWorkspaceSlug, p.projectSlug, p.state);
+      }
     }, []),
   );
 }

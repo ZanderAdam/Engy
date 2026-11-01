@@ -10,6 +10,7 @@ import { WorktreeSelector } from '@/components/diff/worktree-selector';
 import type { WorktreeSelection } from '@/components/diff/worktree-selector';
 import { RepoFileTree } from '@/components/code/repo-file-tree';
 import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
+import { shortcutText, useShortcut } from '@/lib/shortcuts';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useProjectWorktreeMap } from '@/hooks/use-project-worktree-map';
 import { Button } from '@/components/ui/button';
@@ -204,20 +205,7 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
     tabs.reset();
   };
 
-  // Ctrl/Cmd+P opens the fuzzy file finder — only when a repo root is available
-  // (otherwise QuickOpen can't render), and without stealing browser print
-  // elsewhere on the route.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p') {
-        if (!effectiveRoot) return;
-        e.preventDefault();
-        setQuickOpenOpen(true);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [effectiveRoot]);
+  useShortcut('quickOpen', () => setQuickOpenOpen(true), !!effectiveRoot);
 
   const language = selectedFile ? getLanguageFromPath(selectedFile) : '';
 
@@ -255,7 +243,9 @@ export function CodePage({ workspaceSlug, projectSlug }: CodePageProps) {
           >
             <RiFileSearchLine className="size-3.5" />
             Go to File
-            <kbd className="ml-1 hidden rounded-sm bg-muted px-1 text-[10px] sm:inline">⌘P</kbd>
+            <kbd className="ml-1 hidden rounded-sm bg-muted px-1 text-[10px] sm:inline">
+              {shortcutText('quickOpen')}
+            </kbd>
           </Button>
         </div>
         <div className="ml-auto shrink-0">

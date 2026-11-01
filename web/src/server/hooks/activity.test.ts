@@ -1,3 +1,4 @@
+import { isEventForWorkspace } from '@/contexts/event-scope';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import type { TerminalSessionMeta } from '../trpc/context';
@@ -244,6 +245,21 @@ describe('hooks/activity', () => {
       );
       expect(change?.payload.sessionId).toBe('sess-broadcast-non-hook');
       expect(change?.payload.hookDriven).toBeUndefined();
+    });
+
+    it('[FR-TERMINAL-1070] broadcasts the workspace in a field the events scope does not filter', () => {
+      const meta = { ...baseMeta(), workspaceSlug: 'ws-b', projectSlug: 'default' };
+      ctx.state.terminalSessionMeta.set('sess-broadcast-workspace', meta);
+      const { events } = captureBroadcasts(ctx);
+
+      applyActivityState(ctx.state, 'sess-broadcast-workspace', 'done', 'relay');
+
+      const change = events.find(
+        (e): e is { type: string; payload: { sessionWorkspaceSlug?: string } } =>
+          (e as { type: string }).type === 'TERMINAL_ACTIVITY_CHANGE',
+      );
+      expect(change?.payload.sessionWorkspaceSlug).toBe('ws-b');
+      expect(isEventForWorkspace(change?.payload, 'ws-a')).toBe(true);
     });
   });
 });

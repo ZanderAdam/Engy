@@ -35,7 +35,15 @@ interface QuestionChangePayload {
 }
 
 interface TerminalSessionsChangePayload {
-  action: 'created' | 'destroyed' | 'attached' | 'detached' | 'renamed' | 'regrouped';
+  action:
+    | 'created'
+    | 'destroyed'
+    | 'attached'
+    | 'detached'
+    | 'renamed'
+    | 'regrouped'
+    | 'parked';
+  brief?: string;
   sessionId: string;
   groupKey?: string;
   newLabel?: string;
@@ -53,6 +61,7 @@ interface MemoryChangePayload {
 
 interface TerminalActivityChangePayload {
   sessionId: string;
+  sessionWorkspaceSlug?: string;
   projectSlug?: string;
   state?: TerminalActivityState;
   removed?: boolean;

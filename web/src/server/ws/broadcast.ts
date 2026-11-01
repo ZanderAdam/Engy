@@ -34,7 +34,15 @@ interface QuestionChangeEvent {
 interface TerminalSessionsChangeEvent {
   type: 'TERMINAL_SESSIONS_CHANGE';
   payload: {
-    action: 'created' | 'destroyed' | 'attached' | 'detached' | 'renamed' | 'regrouped';
+    action:
+      | 'created'
+      | 'destroyed'
+      | 'attached'
+      | 'detached'
+      | 'renamed'
+      | 'regrouped'
+      | 'parked';
+    brief?: string;
     sessionId: string;
     groupKey?: string;
     newLabel?: string;
@@ -59,6 +67,9 @@ interface TerminalActivityChangeEvent {
   type: 'TERMINAL_ACTIVITY_CHANGE';
   payload: {
     sessionId: string;
+    // Not `workspaceSlug`: useOnServerEvent drops events for other workspaces on that field, and the
+    // Command Center dock must see every workspace's activity.
+    sessionWorkspaceSlug?: string;
     projectSlug?: string;
     state?: TerminalActivityState;
     // True when the session ended — consumers drop it from the rollup.
@@ -225,6 +236,17 @@ export function broadcastTerminalSessionsChange(
   broadcastEvent({
     type: 'TERMINAL_SESSIONS_CHANGE',
     payload: { action, sessionId, groupKey, newLabel, reason },
+  });
+}
+
+export function broadcastTerminalSessionParked(
+  sessionId: string,
+  groupKey: string | undefined,
+  brief: string | undefined,
+): void {
+  broadcastEvent({
+    type: 'TERMINAL_SESSIONS_CHANGE',
+    payload: { action: 'parked', sessionId, groupKey, brief },
   });
 }
 

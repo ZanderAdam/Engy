@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { join, isAbsolute, resolve, dirname } from 'node:path';
-import { readFile, writeFile, readdir, stat, lstat, mkdir } from 'node:fs/promises';
+import { open, readFile, writeFile, readdir, stat, lstat, mkdir } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { simpleGit } from 'simple-git';
 import type { BranchDiffTarget, GitFileStatus, GitWorktreeEntry } from '@engy/common';
@@ -728,6 +728,24 @@ export async function getFileContent(
   }
   const fullPath = resolveAndValidatePath(dir, filePath);
   return readFile(fullPath, 'utf-8');
+}
+
+/** The last `maxBytes` of a file, so a huge log does not cross the control socket whole. */
+export async function getFileTail(
+  dir: string,
+  filePath: string,
+  maxBytes: number,
+): Promise<string> {
+  const file = await open(resolveAndValidatePath(dir, filePath), 'r');
+  try {
+    const { size } = await file.stat();
+    const length = Math.min(size, maxBytes);
+    const buffer = Buffer.alloc(length);
+    await file.read(buffer, 0, length, size - length);
+    return buffer.toString('utf-8');
+  } finally {
+    await file.close();
+  }
 }
 
 /**

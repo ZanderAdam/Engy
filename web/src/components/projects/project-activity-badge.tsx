@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/tooltip';
 
 interface ProjectActivityBadgeProps {
+  workspaceSlug?: string;
   projectSlug?: string;
   className?: string;
 }
@@ -22,8 +23,12 @@ function Digit({ n, activeColor }: { n: number; activeColor: string }) {
 // colors: amber = waiting (needs input), blue = busy, emerald = done (finished
 // but unacknowledged). All three counts always render (zeros dimmed) so the
 // badge keeps a stable width while counts change.
-export function ProjectActivityBadge({ projectSlug, className }: ProjectActivityBadgeProps) {
-  const { active, waiting, done } = useProjectActivity(projectSlug);
+export function ProjectActivityBadge({
+  workspaceSlug,
+  projectSlug,
+  className,
+}: ProjectActivityBadgeProps) {
+  const { active, waiting, done } = useProjectActivity(workspaceSlug, projectSlug);
 
   const title =
     [

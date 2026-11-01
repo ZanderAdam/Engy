@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { railItems, railOrder, railSections } from './rail-order';
+import { railItems, railOrder, splitParkedTabs, railSections } from './rail-order';
 import type { TerminalRailGroup, TerminalTab } from './types';
 
 const OPS: TerminalRailGroup = { id: 'ops', name: 'Ops' };
@@ -20,6 +20,15 @@ function tab(sessionId: string, railGroup?: TerminalRailGroup): TerminalTab {
 }
 
 describe('terminal rail order', () => {
+  describe('[FR-TERMINAL-1090] splitParkedTabs', () => {
+    it('should move dormant tabs out of the live list and keep their rail group', () => {
+      const parked = { ...tab('a', OPS), status: 'dormant' as const };
+      const live = tab('b');
+
+      expect(splitParkedTabs([parked, live])).toEqual({ liveTabs: [live], parkedTabs: [parked] });
+    });
+  });
+
   describe('railItems', () => {
     it('[FR-TERMINAL-1010] should gather group members at the first member, in dock order', () => {
       const items = railItems([tab('a'), tab('o1', OPS), tab('b'), tab('o2', OPS)]);

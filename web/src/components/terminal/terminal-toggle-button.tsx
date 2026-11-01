@@ -5,9 +5,7 @@ import { RiArrowUpSLine, RiArrowDownSLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { shortcutKeys, type ShortcutDef } from '@/components/layout/three-panel-layout';
-
-const BOTTOM_TERMINAL_SHORTCUT: ShortcutDef = { ctrl: true, key: 'j' };
+import { shortcutKeys } from '@/lib/shortcuts';
 
 interface TerminalToggleButtonProps {
   collapsed: boolean;
@@ -15,7 +13,7 @@ interface TerminalToggleButtonProps {
 }
 
 export function TerminalToggleButton({ collapsed, onToggle }: TerminalToggleButtonProps) {
-  const keys = useMemo(() => shortcutKeys(BOTTOM_TERMINAL_SHORTCUT), []);
+  const keys = useMemo(() => shortcutKeys('toggleBottomTerminal'), []);
 
   return (
     <TooltipProvider>

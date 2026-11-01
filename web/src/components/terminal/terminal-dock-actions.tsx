@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { CloseTerminalDialog } from './close-terminal-dialog';
+import { shortcutText } from '@/lib/shortcuts';
 import { useTerminalDock } from './terminal-dock-context';
 import { isStoppedTerminal, type TerminalPanelParams, type TerminalTab } from './types';
 import { TerminalSessionLabel } from './terminal-session-label';
@@ -202,7 +203,7 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
         onClick={onCollapse}
         className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground border-l border-border"
         aria-label="Collapse terminal panel"
-        title="Collapse (Ctrl+`)"
+        title={`Collapse (${shortcutText('toggleTerminal')})`}
       >
         <RiArrowRightSLine className="size-3" />
       </button>

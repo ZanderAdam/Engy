@@ -9,7 +9,7 @@ import {
   RiSearchLine,
 } from '@remixicon/react';
 import { toast } from 'sonner';
-import { ThreePanelLayout, type ShortcutDef } from '@/components/layout/three-panel-layout';
+import { ThreePanelLayout } from '@/components/layout/three-panel-layout';
 import {
   useOptionalTab,
   useVirtualNavigate,
@@ -86,7 +86,6 @@ const LIST_SIDEBAR_CONFIG = {
   maxWidth: 640,
   storageKey: 'engy-prs-list-sidebar-width',
 } as const;
-const LIST_SIDEBAR_SHORTCUT: ShortcutDef = { mod: true, shift: true, key: ';' };
 
 interface InboxViewProps {
   scope?: { workspaceId: number; projectSlug: string };
@@ -615,7 +614,7 @@ export function InboxView({ scope }: InboxViewProps) {
       <ThreePanelLayout
         className="min-w-0 flex-1"
         left={LIST_SIDEBAR_CONFIG}
-        leftShortcut={LIST_SIDEBAR_SHORTCUT}
+        leftShortcut="toggleInboxList"
         leftCollapsed={listCollapsed}
         onLeftCollapsedChange={setListCollapsed}
         leftContent={<div className="flex h-full min-h-0 flex-col">{listPane}</div>}

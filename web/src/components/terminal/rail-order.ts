@@ -41,6 +41,17 @@ export function railSections(
   ];
 }
 
+/** Stopped sessions wait in the rail's Parked group, outside the rail's order. */
+export function splitParkedTabs(tabs: TerminalTab[]): {
+  liveTabs: TerminalTab[];
+  parkedTabs: TerminalTab[];
+} {
+  return {
+    liveTabs: tabs.filter((tab) => tab.status !== 'dormant'),
+    parkedTabs: tabs.filter((tab) => tab.status === 'dormant'),
+  };
+}
+
 export interface TerminalRailGroupItem {
   kind: 'group';
   group: TerminalRailGroup;

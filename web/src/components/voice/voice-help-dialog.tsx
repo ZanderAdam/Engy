@@ -67,8 +67,8 @@ function ActiveVoiceHelpDialog({ voice }: { voice: VoiceControl }) {
       e.preventDefault();
       setOpen(!open);
     }
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
   }, [open, setOpen]);
 
   return (

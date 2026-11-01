@@ -33,7 +33,7 @@ export function ProjectCard({
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-medium">{project.name}</span>
         <div className="flex items-center gap-2">
-          <ProjectActivityBadge projectSlug={project.slug} />
+          <ProjectActivityBadge workspaceSlug={workspaceSlug} projectSlug={project.slug} />
           <ProjectStatusBadge projectId={project.id} status={project.status} clickable />
         </div>
       </div>
