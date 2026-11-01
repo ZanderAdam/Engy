@@ -31,7 +31,6 @@ import { useCommandCenterMode } from './command-center/use-command-center-mode';
 import { groupTabsByProject } from './command-center/grouping';
 import { cloneScopeForNewTerminal } from './command-center/new-terminal-scope';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { closeNeedsConfirm } from './foreign-panel';
 
 export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActionsProps) {
   const { openTerminal, onCollapse, extraDropdownGroups, containerEnabled, defaultScope } =
@@ -327,11 +326,8 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
                                 <TerminalSessionLabel tab={liveTab} />
                               </button>
                               <button
-                                onClick={() => {
-                                  if (closeNeedsConfirm(liveTab)) setClosingTab(liveTab);
-                                  else panelById.get(liveTab.sessionId)?.api.close();
-                                }}
-                                aria-label={`${closeNeedsConfirm(liveTab) ? 'Close' : 'Detach'} terminal ${liveTab.scope.scopeLabel}`}
+                                onClick={() => setClosingTab(liveTab)}
+                                aria-label={`Close terminal ${liveTab.scope.scopeLabel}`}
                                 className="flex size-11 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground"
                               >
                                 <RiCloseLine className="size-4" />

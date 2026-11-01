@@ -10,11 +10,6 @@ import {
 } from '@/components/terminal/use-terminal-scope';
 import { useOptionalTab } from '@/components/tabs/tab-context';
 import { TerminalManager } from '@/components/terminal/terminal-manager';
-import {
-  OrchestratorPinRow,
-  pinVisibleInSheet,
-} from '@/components/terminal/orchestrator-pin-row';
-import { useOrchestratorPinSync } from '@/components/terminal/use-orchestrator-pin';
 import type { TerminalRevealEvent } from '@/components/terminal/terminal-link';
 import {
   useCommandCenterMode,
@@ -260,11 +255,6 @@ function MobileTerminalSheetBase({
             <div className="size-8" aria-hidden />
           )}
         </div>
-        {pinVisibleInSheet(overlayKind, managerMounted) && (
-          <div className="shrink-0 border-b border-border px-2 py-1 empty:hidden">
-            <OrchestratorPinRow variant="row" activeId={null} />
-          </div>
-        )}
         <div ref={contentRef} className="flex flex-1 min-h-0 bg-[#0a0a0a]">
           {managerMounted && (
             <TerminalManager
@@ -287,7 +277,6 @@ function MobileTerminalSheetBase({
 // project/workspace Claude scope and owns the terminal:open/inject events.
 export function MobileTerminalSheet(props: MobileTerminalSheetProps) {
   const scope = useTerminalScope();
-  useOrchestratorPinSync();
   return (
     <MobileTerminalSheetBase
       overlayKind="terminal"

@@ -65,8 +65,6 @@ import { setWorktreeGrouping, useWorktreeGrouping } from './use-worktree-groupin
 import { setRailGroupCollapsed, useCollapsedRailGroups } from './use-collapsed-rail-groups';
 import { CollapsibleRailGroup } from './collapsible-rail-group';
 import { randomId } from '@/lib/random-id';
-import { OrchestratorPinRow } from './orchestrator-pin-row';
-import { useOrchestratorPinSync } from './use-orchestrator-pin';
 
 interface RailDragHandlers extends RailDropHandlers {
   draggable: boolean;
@@ -119,7 +117,6 @@ export function TerminalRail({
   containerEnabled,
 }: TerminalRailProps) {
   const scope = useTerminalScope();
-  useOrchestratorPinSync();
   const tabId = useTabId();
   const commandCenter = useCommandCenterMode();
   const { tabs, activeId } = useTerminalSessions(
@@ -655,14 +652,6 @@ export function TerminalRail({
             </TooltipTrigger>
             <TooltipContent side="left">Group by worktree</TooltipContent>
           </Tooltip>
-        </div>
-
-        <div className={cn('empty:hidden', listExpanded ? 'px-1' : 'flex justify-center')}>
-          <OrchestratorPinRow
-            variant={listExpanded ? 'row' : 'dot'}
-            activeId={activeId}
-            onOpen={() => setCollapsed(false)}
-          />
         </div>
 
         {/* Sessions — colour-coded dots when narrow, labelled rows when

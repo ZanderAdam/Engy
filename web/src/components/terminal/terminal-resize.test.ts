@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canFitPane, paneBecameFit, shouldSendResize } from './terminal-resize';
+import { canFitPane, shouldSendResize } from './terminal-resize';
 
 describe('terminal resize guard', () => {
   describe('shouldSendResize', () => {
@@ -38,18 +38,6 @@ describe('terminal resize guard', () => {
 
     it('[FR-TERMINAL-460] should fit a pane the browser has measured', () => {
       expect(canFitPane(480, 924)).toBe(true);
-    });
-  });
-
-  describe('paneBecameFit', () => {
-    it('[FR-TERMINAL-480] should report a pane that went from hidden to laid out', () => {
-      expect(paneBecameFit(false, true)).toBe(true);
-    });
-
-    it('[FR-TERMINAL-480] should not report a pane that stayed laid out or stayed hidden', () => {
-      expect(paneBecameFit(true, true)).toBe(false);
-      expect(paneBecameFit(false, false)).toBe(false);
-      expect(paneBecameFit(true, false)).toBe(false);
     });
   });
 });

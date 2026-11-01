@@ -17,7 +17,7 @@ import { MobileTerminalControls } from "./mobile-terminal-controls";
 import { MobileComposer } from "./mobile-composer";
 import { toBracketedPaste } from "./bracketed-paste";
 import { useTerminalImageUpload } from "./use-terminal-image-upload";
-import { canFitPane, paneBecameFit, shouldSendResize } from "./terminal-resize";
+import { canFitPane, shouldSendResize } from "./terminal-resize";
 import { applyReconnectSnapshot } from "./terminal-snapshot";
 import { attachTouchScroll } from "./touch-scroll";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -371,13 +371,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onO
       socket.send(JSON.stringify({ t: 'i', sessionId, d: data }));
     });
 
-    let wasFit = canFitPane(container.offsetWidth, container.offsetHeight);
-    const resizeObserver = new ResizeObserver(() => {
-      const isFit = canFitPane(container.offsetWidth, container.offsetHeight);
-      if (paneBecameFit(wasFit, isFit)) reassertSize();
-      else fitAndSyncResize();
-      wasFit = isFit;
-    });
+    const resizeObserver = new ResizeObserver(fitAndSyncResize);
     resizeObserver.observe(containerRef.current);
 
     return () => {

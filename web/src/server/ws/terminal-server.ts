@@ -204,7 +204,9 @@ function markSessionDormant(sessionId: string, meta: TerminalSessionMeta): void 
   // attention no restore will ever satisfy.
   meta.activityState = 'idle';
   persistTerminalSession(sessionId, meta);
-  broadcastTerminalActivityChange({ sessionId, projectSlug: meta.projectSlug, state: 'idle' });
+  if (meta.projectSlug) {
+    broadcastTerminalActivityChange({ sessionId, projectSlug: meta.projectSlug, state: 'idle' });
+  }
 }
 
 /**
@@ -398,21 +400,13 @@ async function handleTerminalConnection(
     // let the generic forward below deliver the ack to the daemon tracker too.
     if (str.startsWith('{"t":"ack"')) {
       const meta = state.terminalSessionMeta.get(sessionId);
-      const activityCleared = meta?.activityState != null && meta.activityState !== 'idle';
-      if (activityCleared) {
+      if (meta && meta.activityState && meta.activityState !== 'idle') {
         applyActivityState(state, sessionId, 'idle', 'user');
       }
       // Answering a permission prompt resumes the same turn, so neither Stop
       // nor UserPromptSubmit fires — the focus ack is the only signal left to
       // clear a stale attention mark (FR-TERMINAL-730).
-      const attentionCleared = clearAttention(state, sessionId);
-      if (meta && attentionCleared && !activityCleared) {
-        broadcastTerminalActivityChange({
-          sessionId,
-          projectSlug: meta.projectSlug,
-          state: 'idle',
-        });
-      }
+      clearAttention(state, sessionId);
     }
 
     // The browser's resize guard assumes "last sent" === "PTY size". Track the

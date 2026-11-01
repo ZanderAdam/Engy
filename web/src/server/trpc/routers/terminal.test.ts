@@ -165,25 +165,6 @@ describe('terminal router', () => {
     });
   });
 
-  describe('orchestratorPin', () => {
-    it('[FR-TERMINAL-1090] should return the orchestrator and the count of waiting terminals', async () => {
-      addSession(state, 'a');
-      addSession(state, 'b');
-      state.terminalSessionMeta.get('b')!.activityState = 'waiting';
-      await caller.terminal.setOrchestrator({ sessionId: 'a', enabled: true });
-
-      const pin = await caller.terminal.orchestratorPin();
-
-      expect(pin?.session.sessionId).toBe('a');
-      expect(pin?.waitingCount).toBe(1);
-    });
-
-    it('[FR-TERMINAL-1090] should return null without an orchestrator', async () => {
-      addSession(state, 'a');
-      expect(await caller.terminal.orchestratorPin()).toBeNull();
-    });
-  });
-
   describe('startOrchestrator', () => {
     function fakeDaemon(sent: string[]) {
       return { readyState: 1, OPEN: 1, send: (d: string) => sent.push(d) } as unknown as WebSocket;

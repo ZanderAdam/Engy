@@ -70,10 +70,10 @@ function setAttention(sessionId: string, meta: TerminalSessionMeta, value: boole
  * the browser focus `{t:'ack'}` path, which resolves a session id rather than
  * a `meta` reference. Wired centrally into `terminal-server.ts`'s ack handler.
  */
-export function clearAttention(state: AppState, sessionId: string): boolean {
+export function clearAttention(state: AppState, sessionId: string): void {
   const meta = state.terminalSessionMeta.get(sessionId);
-  if (!meta) return false;
-  return setAttention(sessionId, meta, false);
+  if (!meta) return;
+  setAttention(sessionId, meta, false);
 }
 
 /**

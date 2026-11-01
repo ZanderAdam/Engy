@@ -17,7 +17,6 @@ import {
 import { resolveRenameSeed, resolveTerminalLabel } from './terminal-label';
 import { useSessionBranch } from './use-session-branch';
 import { AttentionBadge } from './attention-badge';
-import { closeNeedsConfirm } from './foreign-panel';
 
 function collapseLabel(label: string): string {
   const parts = label.split('/').filter(Boolean);
@@ -47,7 +46,6 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
   const { branch } = useSessionBranch(tab.scope);
   const isDir = tab.scope.scopeType === 'dir';
   const displayLabel = isDir ? collapseLabel(mainLabel) : mainLabel;
-  const needsConfirm = closeNeedsConfirm(tab);
 
   function commitRename(value: string) {
     const trimmed = value.trim();
@@ -135,15 +133,13 @@ export function TerminalDockTab({ api, params }: IDockviewPanelHeaderProps<Termi
       <button
         onClick={(e) => {
           e.stopPropagation();
-          if (needsConfirm) setConfirmCloseOpen(true);
-          else api.close();
+          setConfirmCloseOpen(true);
         }}
         className={cn(
           'ml-auto shrink-0 rounded-sm p-0.5 hover:bg-muted',
           canHover ? 'opacity-0 group-hover:opacity-100' : 'opacity-100',
         )}
-        aria-label={needsConfirm ? 'Close terminal' : 'Detach terminal'}
-        title={needsConfirm ? undefined : 'Detach (the session keeps running)'}
+        aria-label="Close terminal"
       >
         <RiCloseLine className="size-[10px]" />
       </button>
