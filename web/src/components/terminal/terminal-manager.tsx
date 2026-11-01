@@ -372,9 +372,17 @@ export function TerminalManager({ onCollapse, onReveal, defaultScope, extraDropd
     (sessionId: string, status: TerminalTab['status']) => {
       const existing = tabsRef.current.get(sessionId);
       if (!existing) return;
-      commitTab(sessionId, { ...existing, status, activityState: status === 'exited' ? 'idle' as const : existing.activityState });
+      const stopped = isStoppedTerminal(status);
+      const restoring = existing.status === 'dormant' && status === 'connecting';
+      commitTab(sessionId, {
+        ...existing,
+        status,
+        activityState: stopped ? 'idle' as const : existing.activityState,
+        restore: restoring,
+        brief: restoring ? undefined : existing.brief,
+      });
 
-      if (status === 'exited') {
+      if (stopped) {
         dispatchActivityEvent(sessionId, 'idle');
         broadcastActive();
       }
@@ -644,6 +652,10 @@ export function TerminalManager({ onCollapse, onReveal, defaultScope, extraDropd
       updateTabLabel(payload.sessionId, payload.newLabel);
     } else if (payload.action === 'regrouped') {
       applyRailGroup(payload.sessionId, payload.railGroup ?? null);
+    } else if (payload.action === 'parked') {
+      const parked = tabsRef.current.get(payload.sessionId);
+      if (parked) commitTab(payload.sessionId, { ...parked, brief: payload.brief });
+      handleStatusChange(payload.sessionId, 'dormant');
     } else if (payload.action === 'destroyed' && payload.reason === 'killed') {
       // Deliberate teardown (user kill in another browser / agent
       // terminal_close) — remove the tab instead of leaving it as 'exited'.
@@ -653,7 +665,7 @@ export function TerminalManager({ onCollapse, onReveal, defaultScope, extraDropd
     // 'destroyed' without reason (natural PTY exit) keeps the tab so its
     // final output stays readable — the WS exit event marks it exited.
     // 'attached'/'detached' are informational — no action needed
-  }, [updateTabLabel, applyRailGroup, buildSessionsUrl, applyPendingFocus]));
+  }, [updateTabLabel, applyRailGroup, buildSessionsUrl, applyPendingFocus, commitTab, handleStatusChange]));
 
   // needsAttention has no broadcast of its own — every hook event that can
   // change it (Notification sets it, Stop/UserPromptSubmit clear it, and the

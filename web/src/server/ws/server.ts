@@ -1202,12 +1202,14 @@ export function dispatchFileRead(
   state: AppState,
   ref?: string,
   coderWorkspace?: string,
+  tailBytes?: number,
 ): Promise<FileReadResult> {
   return dispatchDaemonOp(state, state.pendingFileRead, 'FILE_READ_REQUEST', {
     repoDir,
     filePath,
     ref,
     coderWorkspace,
+    tailBytes,
   });
 }
 

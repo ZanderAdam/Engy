@@ -44,7 +44,7 @@ function getWsBase(): string {
   return `${protocol}//${window.location.host}`;
 }
 
-function buildWsUrl(tab: TerminalTab): string {
+function buildWsUrl(tab: TerminalTab, restore: boolean): string {
   const base = getWsBase();
   const { sessionId, scope } = tab;
   const params = new URLSearchParams({
@@ -65,6 +65,7 @@ function buildWsUrl(tab: TerminalTab): string {
   if (scope.containerMode) params.set('containerMode', scope.containerMode);
   if (scope.taskId != null) params.set('taskId', String(scope.taskId));
   if (scope.resumedFrom) params.set('resumedFrom', scope.resumedFrom);
+  if (restore) params.set('restore', '1');
   return `${base}/ws/terminal?${params.toString()}`;
 }
 
@@ -266,8 +267,9 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onO
       },
     };
 
+    let restoreOnConnect = tab.restore === true;
     const socket = new ReconnectingSocket({
-      urlFactory: () => buildWsUrl(tab),
+      urlFactory: () => buildWsUrl(tab, restoreOnConnect),
       // Wake recovery probes the server instead of blindly force-reconnecting —
       // a healthy socket answers with pong (handled below) and keeps its state.
       sendProbe: (ws) =>
@@ -275,6 +277,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onO
       callbacks: {
         onOpen: () => {
           console.log(`[terminal-ui] WS open for session ${sessionId}`);
+          restoreOnConnect = false;
           onStatusChange(sessionId, 'active');
           // Every (re)connect re-asserts real, post-fit dimensions. The PTY may
           // have (re)spawned at the URL default (80x24), and the last-sent refs
@@ -292,6 +295,7 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onO
             rows?: number;
             title?: string;
             exitCode?: number;
+            parked?: boolean;
           };
           try {
             msg = JSON.parse(event.data as string) as typeof msg;
@@ -329,6 +333,10 @@ export function TerminalInstance({ tab, xtermTheme, onStatusChange, onReady, onO
             const code = msg.exitCode ?? 0;
             console.log(`[terminal-ui] Exit for session ${sessionId}: code=${code}`);
             socket.markFinal();
+            if (msg.parked) {
+              onStatusChange(sessionId, 'dormant');
+              return;
+            }
             onStatusChange(sessionId, 'exited');
             const label =
               code === -1

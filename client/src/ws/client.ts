@@ -62,6 +62,7 @@ import {
   deleteRefs,
   getOriginUrl,
   getFileContent,
+  getFileTail,
   getFileBytes,
   writeFileContent,
   listWorktrees,
@@ -1064,7 +1065,7 @@ export class WsClient {
   }
 
   private async handleFileReadRequest(message: FileReadRequestMessage): Promise<void> {
-    const { requestId, repoDir, filePath, ref, coderWorkspace } = message.payload;
+    const { requestId, repoDir, filePath, ref, coderWorkspace, tailBytes } = message.payload;
     try {
       let content: string;
       if (coderWorkspace) {
@@ -1072,11 +1073,17 @@ export class WsClient {
           content = await getFileContent(repoDir, filePath, ref, this.gitRunnerFor(coderWorkspace));
         } else {
           const posixPath = filePath.startsWith('/') ? filePath : `${repoDir}/${filePath}`;
-          const { stdout } = await this.coderManager.execCapture(coderWorkspace, 'cat', [
-            posixPath,
-          ]);
+          const { stdout } = tailBytes
+            ? await this.coderManager.execCapture(coderWorkspace, 'tail', [
+                '-c',
+                String(tailBytes),
+                posixPath,
+              ])
+            : await this.coderManager.execCapture(coderWorkspace, 'cat', [posixPath]);
           content = stdout;
         }
+      } else if (tailBytes) {
+        content = await getFileTail(repoDir, filePath, tailBytes);
       } else {
         content = await getFileContent(repoDir, filePath, ref);
       }

@@ -168,6 +168,142 @@ describe('terminal router', () => {
     });
   });
 
+  describe('parkSession', () => {
+    let sent: Array<{ t?: string; sessionId?: string; type?: string }>;
+    let transcript: string | Error;
+
+    function connectFakeDaemon(): void {
+      sent = [];
+      transcript = '';
+      const daemon = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => {
+          const msg = JSON.parse(data);
+          sent.push(msg);
+          if (msg.type !== 'FILE_READ_REQUEST') return;
+          const pending = state.pendingFileRead.get(msg.payload.requestId);
+          if (transcript instanceof Error) pending?.reject(transcript);
+          else pending?.resolve({ content: transcript });
+        },
+      } as unknown as WebSocket;
+      state.daemon = daemon;
+      state.terminalDaemon = daemon;
+    }
+
+    function addBrowser(sessionId: string): { frames: string[]; closed: () => boolean } {
+      const frames: string[] = [];
+      let closed = false;
+      const ws = {
+        readyState: WebSocket.OPEN,
+        OPEN: WebSocket.OPEN,
+        send: (data: string) => frames.push(data),
+        close: () => {
+          closed = true;
+        },
+      } as unknown as WebSocket;
+      state.terminalSessions.set(sessionId, new Set([ws]));
+      return { frames, closed: () => closed };
+    }
+
+    it('[FR-TERMINAL-1070] should kill the PTY and keep the session dormant', async () => {
+      connectFakeDaemon();
+      addSession(state, 's1');
+      const meta = state.terminalSessionMeta.get('s1')!;
+      meta.transcriptPath = '/home/me/.claude/projects/repo/conv.jsonl';
+      meta.lastReply = 'Last reply';
+      const browser = addBrowser('s1');
+
+      await caller.terminal.parkSession({ sessionId: 's1' });
+
+      expect(sent).toContainEqual({ t: 'kill', sessionId: 's1' });
+      expect(meta.dormant).toBe(true);
+      expect(meta.brief).toBe('Last reply');
+      expect(meta.activityState).toBe('idle');
+      expect(JSON.parse(browser.frames[0])).toMatchObject({ t: 'exit', parked: true });
+      expect(browser.closed()).toBe(true);
+      expect(state.terminalSessions.has('s1')).toBe(false);
+      expect(ctx.db.select().from(terminalSessionHistory).all()).toEqual([]);
+    });
+
+    it('[FR-TERMINAL-1085] should prefer a current recap over the last reply', async () => {
+      connectFakeDaemon();
+      transcript = JSON.stringify({
+        subtype: 'away_summary',
+        content: 'Recap of the work.',
+        timestamp: new Date(1000).toISOString(),
+      });
+      addSession(state, 's1');
+      const meta = state.terminalSessionMeta.get('s1')!;
+      meta.transcriptPath = '/home/me/.claude/projects/repo/conv.jsonl';
+      meta.lastReply = 'Last reply';
+      meta.lastStopAt = 500;
+
+      await caller.terminal.parkSession({ sessionId: 's1' });
+
+      expect(meta.brief).toBe('Recap of the work.');
+    });
+
+    it('[FR-TERMINAL-1085] should fall back to the last reply when the read fails', async () => {
+      connectFakeDaemon();
+      transcript = new Error('ENOENT');
+      addSession(state, 's1');
+      const meta = state.terminalSessionMeta.get('s1')!;
+      meta.transcriptPath = '/gone/conv.jsonl';
+      meta.lastReply = 'Last reply';
+
+      await caller.terminal.parkSession({ sessionId: 's1' });
+
+      expect(meta.brief).toBe('Last reply');
+      expect(meta.dormant).toBe(true);
+    });
+
+    it('[FR-TERMINAL-1075] should refuse a terminal that cannot resume', async () => {
+      connectFakeDaemon();
+      addSession(state, 's1');
+      state.terminalSessionMeta.get('s1')!.agentType = 'codex';
+
+      await expect(caller.terminal.parkSession({ sessionId: 's1' })).rejects.toThrow(
+        'Only a Claude terminal',
+      );
+      expect(state.terminalSessionMeta.get('s1')?.dormant).toBeUndefined();
+    });
+
+    it('[FR-TERMINAL-1075] should refuse a session with no agent reply yet', async () => {
+      connectFakeDaemon();
+      addSession(state, 's1');
+
+      await expect(caller.terminal.parkSession({ sessionId: 's1' })).rejects.toThrow(
+        'Nothing to park yet',
+      );
+    });
+
+    it('[FR-TERMINAL-1070] should not kill a session restored during the transcript read', async () => {
+      connectFakeDaemon();
+      addSession(state, 's1');
+      const meta = state.terminalSessionMeta.get('s1')!;
+      meta.transcriptPath = '/home/me/.claude/projects/repo/conv.jsonl';
+      const parks = [
+        caller.terminal.parkSession({ sessionId: 's1' }),
+        caller.terminal.parkSession({ sessionId: 's1' }),
+      ];
+
+      await Promise.all(parks);
+
+      expect(sent.filter((msg) => msg.t === 'kill')).toHaveLength(1);
+    });
+
+    it('[FR-TERMINAL-1075] should refuse to park with no daemon connected', async () => {
+      addSession(state, 's1');
+      state.terminalSessionMeta.get('s1')!.transcriptPath = '/home/me/conv.jsonl';
+
+      await expect(caller.terminal.parkSession({ sessionId: 's1' })).rejects.toThrow(
+        'No daemon connected',
+      );
+      expect(state.terminalSessionMeta.get('s1')?.dormant).toBeUndefined();
+    });
+  });
+
   describe('[FR-TERMINAL-990] uploadImage', () => {
     const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     let writes: FileWriteRequestMessage['payload'][];

@@ -10,7 +10,11 @@ import {
   type AgentTypeId,
   type WorkspaceAgentSettings,
 } from '@/lib/agent-types';
-import { broadcastTerminalActivityChange, broadcastTerminalSessionsChange } from './ws/broadcast';
+import {
+  broadcastTerminalActivityChange,
+  broadcastTerminalSessionParked,
+  broadcastTerminalSessionsChange,
+} from './ws/broadcast';
 import {
   persistTerminalSession,
   deletePersistedTerminalSession,
@@ -551,6 +555,71 @@ export function destroyTerminalSession(
     broadcastTerminalActivityChange({ sessionId, projectSlug: meta.projectSlug, removed: true });
   }
   return meta;
+}
+
+/**
+ * A session with no PTY whose tab stays. The meta (and its DB row) is kept so
+ * the user can restore it deliberately — restoring resumes the agent
+ * conversation, which is not something to do behind their back for every
+ * terminal they ever left open.
+ */
+export function markSessionDormant(sessionId: string, meta: TerminalSessionMeta): void {
+  meta.dormant = true;
+  // The PTY is gone; a leftover waiting/done badge would keep asking for
+  // attention no restore will ever satisfy.
+  meta.activityState = 'idle';
+  persistTerminalSession(sessionId, meta);
+  if (meta.projectSlug) {
+    broadcastTerminalActivityChange({
+      sessionId,
+      sessionWorkspaceSlug: meta.workspaceSlug,
+      projectSlug: meta.projectSlug,
+      state: 'idle',
+    });
+  }
+}
+
+/**
+ * Stop a live session's PTY but keep the session as a dormant tab with `brief`
+ * on it. Attached browsers get a parked exit frame before the close: a close
+ * alone makes their socket reconnect, and a connect restores a dormant session.
+ * Returns false when no daemon is connected to kill the PTY.
+ */
+export function parkTerminalSession(
+  state: AppState,
+  sessionId: string,
+  meta: TerminalSessionMeta,
+  brief: string | undefined,
+): boolean {
+  const daemon = state.terminalDaemon;
+  if (!daemon || daemon.readyState !== daemon.OPEN) return false;
+
+  meta.brief = brief;
+  meta.activeSubagents = undefined;
+  meta.needsAttention = false;
+  markSessionDormant(sessionId, meta);
+  daemon.send(JSON.stringify({ t: 'kill', sessionId } satisfies TerminalKillCmd));
+  state.daemonTerminalSessions.ids.delete(sessionId);
+
+  const exitFrame = JSON.stringify({
+    t: 'exit',
+    sessionId,
+    exitCode: 0,
+    parked: true,
+  } satisfies TerminalExitEvent);
+  for (const bws of state.terminalSessions.get(sessionId) ?? []) {
+    if (bws.readyState === bws.OPEN) {
+      bws.send(exitFrame);
+      bws.close(1001, 'Session parked');
+    }
+  }
+  state.terminalSessions.delete(sessionId);
+
+  failWorkerDispatches(state, sessionId, 'Worker terminal parked');
+  disconnectWorker(state, sessionId);
+  clearLiveTargetsForSession(state, sessionId);
+  broadcastTerminalSessionParked(sessionId, meta.groupKey, brief);
+  return true;
 }
 
 /**

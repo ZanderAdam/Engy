@@ -24,6 +24,8 @@ interface TerminalSessionListItem {
   browserCount: number;
   /** PTY lost on a daemon restart — the tab is restorable, not live. */
   dormant: boolean;
+  brief?: string;
+  spawnedBy?: string;
   activeSubagents: number;
   lastFailure?: { type: string; message: string; at: number };
   /**
@@ -93,6 +95,8 @@ export function listTerminalSessions(
         status: browserCount > 0 ? ('active' as const) : ('suspended' as const),
         browserCount,
         dormant: m.dormant === true,
+        brief: m.brief,
+        spawnedBy: m.spawnedBy,
         activeSubagents: m.activeSubagents ?? 0,
         lastFailure: m.lastFailure,
         hookDriven: m.hookDriven === true,

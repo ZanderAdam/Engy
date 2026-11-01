@@ -23,6 +23,8 @@ export interface SessionListItem {
   status: 'active' | 'suspended';
   browserCount: number;
   dormant?: boolean;
+  brief?: string;
+  spawnedBy?: string;
 }
 
 /**
@@ -49,6 +51,8 @@ export function sessionToTab(s: SessionListItem, fallbackGroupKey: string): Term
     },
     status: s.dormant ? 'dormant' : 'connecting',
     railGroup: s.railGroup,
+    brief: s.brief,
+    spawnedBy: s.spawnedBy,
     activityState: s.activityState ?? 'idle',
     // Seeds the subtitle for a session no browser has ever attached to —
     // otherwise a hook-derived title never reaches a tab built from this list.

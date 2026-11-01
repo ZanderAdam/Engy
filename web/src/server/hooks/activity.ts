@@ -41,7 +41,7 @@ export function applyActivityState(
   source: ActivitySource,
 ): void {
   const meta = state.terminalSessionMeta.get(sessionId);
-  if (!meta) return;
+  if (!meta || meta.dormant) return;
   if (source === 'relay' && isWithinHookTrustWindow(meta)) return;
 
   meta.activityState = next;

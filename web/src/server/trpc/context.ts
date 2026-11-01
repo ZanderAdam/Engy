@@ -57,6 +57,12 @@ export interface TerminalSessionMeta {
   // The session keeps its place in the dock as a tab the user can restore; the
   // restore spawns a fresh PTY (resuming the agent conversation) on demand.
   dormant?: boolean;
+  // What the user reads on the parked tab: the CLI recap, or the last reply.
+  brief?: string;
+  // Stored from each Stop hook, because a park reads the recap after the fact.
+  transcriptPath?: string;
+  lastReply?: string;
+  lastStopAt?: number;
   hookDriven?: boolean;
   // Bounds the hookDriven override: past this window relay `{t:'act'}` is
   // trusted again, so a dropped Stop hook cannot pin the session forever.

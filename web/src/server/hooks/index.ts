@@ -13,6 +13,7 @@ import { handleMemoryCaptureIngest } from './memory-capture-ingest';
 import { MEMORY_CAPTURE_HOOK_EVENT } from './memory';
 import { buildSessionStartContext } from './session-context';
 import { handleSubagentStart, handleSubagentStop } from './subagent';
+import { handleStopBrief } from './brief';
 import { handleClearAttention, handleNotificationAttention, handleStopTitle } from './title';
 import type { HookHandler, HookPayload, HookRegistry, HookResult } from './types';
 
@@ -40,6 +41,7 @@ export const HOOK_HANDLER_REGISTRATIONS: Array<{ event: string; handler: HookHan
   { event: 'Stop', handler: handleCwdChange },
   { event: 'Stop', handler: settleDispatchOnStop },
   { event: 'Stop', handler: handleStopTitle },
+  { event: 'Stop', handler: handleStopBrief },
   { event: 'Stop', handler: handleClearAttention },
   { event: 'Stop', handler: clearFailureOnStop },
   { event: 'Stop', handler: handleStopActivity },

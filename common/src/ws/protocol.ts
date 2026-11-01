@@ -485,6 +485,8 @@ export interface FileReadRequestMessage {
     filePath: string;
     ref?: string;
     coderWorkspace?: string;
+    /** Read only the last bytes of the working-tree file. */
+    tailBytes?: number;
   };
 }
 
@@ -1143,6 +1145,8 @@ export interface TerminalExitEvent {
   t: 'exit';
   sessionId: string;
   exitCode: number;
+  /** The session stays as a restorable tab, so the browser must not call it exited. */
+  parked?: boolean;
 }
 
 /**
