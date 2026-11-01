@@ -1,6 +1,7 @@
 ---
 name: ui-test
 description: "This skill should be used after any UI change and before a commit that touches pages, components or dialogs, and when the user asks to 'test the UI', 'validate the UX', 'check the DX', 'run a UX pass', 'test it in the browser', 'playwright check', or 'run user personas'. Drives a fresh dev instance with playwright-cli through tester subagents that act as real users, checks the change works, finds UX and DX problems, and files what is out of scope as tasks. Use it even when the change looks small and the user did not ask for UX feedback."
+context: fork
 ---
 
 # UI Test
@@ -42,6 +43,8 @@ Test the code in the checkout that holds the change. For a full sweep with no ch
 ### 3. Brief the testers
 
 Build each tester prompt from `references/tester-brief.md`. Fill in every placeholder. A tester knows only what the prompt says.
+
+This skill runs as a forked subagent. If this run cannot spawn agents, do the change check yourself by following the brief. A full sweep needs testers, so stop and report that.
 
 - Change check: use the brief with the acceptance checks as its scope. Dispatch one `general-purpose` agent with `model: 'sonnet'`.
 - Full sweep: use one brief per persona. Give each tester a separate playwright session name and findings file.
