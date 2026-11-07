@@ -11,5 +11,7 @@ export function useTaskAutoInvalidation(): void {
     utils.project.listWithProgress.invalidate();
     utils.execution.getSessionStatus.invalidate();
     utils.execution.getActiveSessions.invalidate();
+    utils.task.listSessions.invalidate();
+    utils.terminal.linkedTasks.invalidate();
   });
 }

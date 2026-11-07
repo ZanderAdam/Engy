@@ -55,6 +55,7 @@ export function useQuickAction(projectSlugOverride?: string) {
     scopeLabel: string;
     containerMode?: ContainerMode;
     taskId?: number;
+    linkTaskIds?: number[];
     implementing?: boolean;
   }) {
     if (!workingDir || !projectDir || !workspace || !project) return;
@@ -92,6 +93,7 @@ export function useQuickAction(projectSlugOverride?: string) {
       workspaceSlug,
       containerMode: opts.containerMode,
       taskId: opts.taskId,
+      linkTaskIds: opts.linkTaskIds,
       projectId: project.id,
       projectSlug,
       agentType: 'claude',

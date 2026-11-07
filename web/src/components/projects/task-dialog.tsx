@@ -55,6 +55,7 @@ import { toast } from 'sonner';
 import { useExecutionStatus } from '@/hooks/use-execution-status';
 import { useTaskHasPlan } from '@/hooks/use-task-has-plan';
 import { ExecutionTab } from './execution-tab';
+import { TaskSessionsTab } from './task-sessions-tab';
 import { TaskPlacementFields } from './task-placement-fields';
 import type { TaskPlacement } from './task-placement';
 
@@ -77,7 +78,7 @@ interface CreateProps {
 
 // ── Edit mode ────────────────────────────────────────────────────────
 
-type TaskDialogTab = 'description' | 'plan' | 'execution' | 'questions';
+type TaskDialogTab = 'description' | 'plan' | 'execution' | 'sessions' | 'questions';
 
 interface EditProps {
   mode: 'edit';
@@ -289,6 +290,10 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
     taskId,
   );
   const hasExecution = !!sessionId;
+
+  const { data: taskSessions, dataUpdatedAt: taskSessionsFetchedAt } =
+    trpc.task.listSessions.useQuery({ id: taskId }, { enabled: open });
+  const sessionCount = taskSessions?.length ?? 0;
 
   const { data: taskQuestions } = trpc.question.list.useQuery(
     { taskId, unanswered: true },
@@ -573,6 +578,9 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
             <TabsTrigger value="description">Description</TabsTrigger>
             {hasPlan && <TabsTrigger value="plan">Plan</TabsTrigger>}
             {hasExecution && <TabsTrigger value="execution">Execution</TabsTrigger>}
+            {sessionCount > 0 && (
+              <TabsTrigger value="sessions">Sessions ({sessionCount})</TabsTrigger>
+            )}
             {hasQuestions && (
               <TabsTrigger value="questions">
                 <RiQuestionLine className="size-3.5 text-amber-400" />
@@ -671,6 +679,16 @@ function EditTask({ open, onOpenChange, taskId, initialTab }: EditProps) {
                 sessionId={sessionId!}
                 status={executionStatus}
                 completionSummary={completionSummary}
+              />
+            </TabsContent>
+          )}
+          {sessionCount > 0 && (
+            <TabsContent value="sessions">
+              <TaskSessionsTab
+                taskId={taskId}
+                sessions={taskSessions ?? []}
+                fetchedAt={taskSessionsFetchedAt}
+                onLeave={() => onOpenChange(false)}
               />
             </TabsContent>
           )}

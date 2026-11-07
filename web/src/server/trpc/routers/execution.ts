@@ -22,6 +22,7 @@ import {
   dispatchRemoteFilePush,
 } from '../../ws/server';
 import { broadcastTaskChange } from '../../ws/broadcast';
+import { linkTaskSessions } from '../../tasks/sessions';
 import { getWorkspaceDir, resolveProjectDir } from '../../engy-dir/init';
 import { buildContextBlock, buildQuickActionDirs } from '../../../lib/shell';
 import { resolveAgentSkills, type WorkspaceAgentSettings } from '../../../lib/agent-types';
@@ -407,6 +408,7 @@ export const executionRouter = router({
       let taskId: number | null = null;
       let previousTaskStatus: string | null = null;
       let taskGroupId: number | null = null;
+      let coveredTaskIds: number[] = [];
       let repos: string[] = [];
       let workspace: {
         slug: string;
@@ -478,6 +480,7 @@ export const executionRouter = router({
           throw new TRPCError({ code: 'NOT_FOUND', message: `Task group ${id} not found` });
 
         const groupTasks = db.select().from(tasks).where(eq(tasks.taskGroupId, id)).all();
+        coveredTaskIds = groupTasks.map((task) => task.id);
         const firstTask = groupTasks[0];
         if (!firstTask?.projectId)
           throw new TRPCError({
@@ -508,6 +511,7 @@ export const executionRouter = router({
           .from(tasks)
           .where(eq(tasks.milestoneRef, milestoneRef))
           .all();
+        coveredTaskIds = allTasks.map((task) => task.id);
         const firstTask = allTasks[0];
         if (!firstTask?.projectId)
           throw new TRPCError({
@@ -593,6 +597,11 @@ export const executionRouter = router({
           taskGroupId,
         })
         .run();
+      linkTaskSessions(taskId ? [taskId, ...coveredTaskIds] : coveredTaskIds, {
+        sessionKey: sessionId,
+        kind: 'execution',
+        source: 'spawn',
+      });
 
       // Move task to in_progress (skip for milestone scope — agent handles all tasks)
       if (taskId && input.scope === 'task') {
@@ -1079,6 +1088,10 @@ export const executionRouter = router({
           taskId: firstTask.id,
         })
         .run();
+      linkTaskSessions(
+        batchTasks.map((task) => task.id),
+        { sessionKey: sessionId, kind: 'execution', source: 'spawn' },
+      );
 
       // Mark all tasks as in_progress/implementing
       for (const task of batchTasks) {

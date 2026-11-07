@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type WebSocket from 'ws';
 import type { AppState } from './trpc/context';
 import { setupTestDb, type TestContext } from './trpc/test-helpers';
-import { terminalSessionHistory } from './db/schema';
+import { projects, tasks, terminalSessionHistory, workspaces } from './db/schema';
+import { linkTaskSessions, listSessionTaskIds } from './tasks/sessions';
 import { recordSessionStart } from './ws/terminal-session-history';
 import {
   connectWorker,
@@ -598,6 +599,21 @@ describe('terminal dispatch', () => {
         mcpOrigin: 'http://localhost:3000',
       });
     }
+
+    it('[FR-TERMINAL-1120] should give a spawned worker the task links of its caller', () => {
+      const ws = ctx.db.insert(workspaces).values({ name: 'w', slug: 'w' }).returning().get();
+      const project = ctx.db
+        .insert(projects)
+        .values({ workspaceId: ws.id, name: 'p', slug: 'p' })
+        .returning()
+        .get();
+      const task = ctx.db.insert(tasks).values({ title: 't', projectId: project.id }).returning().get();
+      linkTaskSessions([task.id], { sessionKey: 'caller-sess', kind: 'terminal', source: 'mcp' });
+
+      const result = spawnWorker();
+
+      expect(listSessionTaskIds(result!.sessionId)).toEqual([task.id]);
+    });
 
     it('[FR-TERMINAL-320] should substitute the session-id placeholder in agent-spawned commands', () => {
       const result = spawnWorker();

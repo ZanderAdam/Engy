@@ -615,6 +615,10 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-1070 | WHEN the browser rolls terminal activity up per project, the system SHALL key the counts by workspace slug and project slug, so projects with the same slug in different workspaces each show only their own sessions. |
 | FR-TERMINAL-1100 | WHEN the user presses Ctrl+` with focus anywhere, a terminal included, the browser SHALL toggle the terminal sidebar, on a phone layout the terminal overlay, and SHALL NOT send the key to the PTY; WHEN the sidebar collapses, focus SHALL leave the terminal. |
 | FR-TERMINAL-1110 | WHEN the user presses Ctrl+Alt+`, the browser SHALL focus the active terminal of the visible rail, or SHALL release focus WHILE a terminal has it. WHILE a terminal has focus, a Ctrl+letter shortcut SHALL go to the terminal and not to the app. |
+| FR-TERMINAL-1120 | WHEN a terminal spawns with a `taskId`, a `taskIds` list (bulk implement) or as a worker of a caller that has task links, the system SHALL link each of those tasks to the session in `task_sessions`, keyed by the conversation id (`resumedFrom ?? sessionId`) so every resume of the conversation shares the links. |
+| FR-TERMINAL-1130 | WHEN an agent connected at `/mcp/<terminalSessionId>` calls `updateTask` on an existing task, the system SHALL link that task to the caller's conversation id and refresh the link's `lastSeenAt`. Reads (`getTask`, `listTasks`), `createTask`, anonymous `/mcp` callers and UI edits SHALL NOT create a link. |
+| FR-TERMINAL-1140 | WHILE a history row's session is linked to a task, the system SHALL exclude it from the 50-row per-workspace prune and from that cap's count. |
+| FR-TERMINAL-1150 | The terminal top bar SHALL show every task linked to the session, the task the terminal opened for first and the rest by most recent link, each one opening its task. |
 
 ## Sources
 

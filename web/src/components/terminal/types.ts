@@ -68,6 +68,9 @@ export interface TerminalScope {
   workspaceSlug: string;
   containerMode?: ContainerMode;
   taskId?: number;
+  // Extra tasks a session covers from spawn (bulk implement). Linked server-side
+  // only, never stored in meta, so `taskId` stays the one task the tab opened for.
+  linkTaskIds?: number[];
   // Which agent CLI this terminal runs (undefined = plain shell when command
   // is unset, claude otherwise). Recorded in session meta for the worker
   // picker and dispatch paste behavior.

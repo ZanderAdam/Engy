@@ -21,7 +21,7 @@ export function TerminalDockPanel({ params, api }: IDockviewPanelProps<TerminalP
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <TerminalTopBar scope={params.tab.scope} />
+      <TerminalTopBar sessionId={sessionId} scope={params.tab.scope} />
       <div className="flex min-h-0 flex-1">
         {status === 'dormant' ? (
           // Mounting the terminal is what restores the session: its socket

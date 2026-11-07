@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildResumeScope,
   buildSessionHistoryGroup,
   relativeTime,
   type SessionHistoryItem,
@@ -38,6 +39,15 @@ describe('session history entries', () => {
       expect(relativeTime('2026-07-22T09:00:00.000Z', NOW)).toBe('3h ago');
       expect(relativeTime('2026-07-19T12:00:00.000Z', NOW)).toBe('3d ago');
       expect(relativeTime('2026-07-22T11:59:59.000Z', NOW)).toBe('just now');
+    });
+  });
+
+  describe('buildResumeScope', () => {
+    it('[FR-TASK-340] should resume the conversation bound to the given task', () => {
+      const scope = buildResumeScope(makeRow(), { ...baseOpts, taskId: 7 });
+
+      expect(scope).toMatchObject({ taskId: 7, resumedFrom: 'sess-1', agentType: 'claude' });
+      expect(scope.command).toContain("--resume 'sess-1'");
     });
   });
 

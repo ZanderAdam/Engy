@@ -6,16 +6,9 @@ import { CollapsedLaneRail } from '@/components/projects/task-views/collapsed-la
 import { CollapsedLaneStrip } from '@/components/projects/task-views/collapsed-lane-strip';
 import { laneCollapsed } from '@/components/projects/task-views/kanban-collapse';
 import { KanbanLaneContent } from '@/components/projects/task-views/kanban-lane-content';
-import {
-  useVirtualNavigate,
-  useVirtualPathname,
-  useVirtualSearchParams,
-} from '@/components/tabs/tab-context';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useProjectTerminals } from '@/hooks/use-project-terminals';
-import { trpc } from '@/lib/trpc';
 import { AttentionBadge } from './attention-badge';
-import { normalizeWtParam, worktreeFromGroupKey } from './group-key';
 import { sessionToTab, type SessionListItem } from './session-to-tab';
 import {
   groupTerminalsByLane,
@@ -25,7 +18,7 @@ import {
   type TerminalLane,
 } from './terminal-board-model';
 import { resolveTerminalLabel } from './terminal-label';
-import { useSendToTerminal } from './use-send-to-terminal';
+import { useOpenLiveSession } from './use-open-live-session';
 
 const MOBILE_LANE_PRIORITY: TerminalLane[] = ['waiting', 'active', 'done', 'idle', 'backlog'];
 
@@ -102,29 +95,6 @@ function TerminalLaneColumn({
   );
 }
 
-function useOpenBoardTerminal(workspaceSlug: string) {
-  const nav = useVirtualNavigate();
-  const pathname = useVirtualPathname();
-  const searchParams = useVirtualSearchParams();
-  const { focusTerminal } = useSendToTerminal();
-  const { data: workspace } = trpc.workspace.get.useQuery({ slug: workspaceSlug });
-
-  return (session: SessionListItem) => {
-    const worktree = worktreeFromGroupKey(session.groupKey);
-    const inCurrentDock =
-      workspace?.combinedWorktrees || worktree === normalizeWtParam(searchParams.get('wt'));
-    if (!inCurrentDock) {
-      const params = new URLSearchParams(searchParams);
-      if (worktree) params.set('wt', worktree);
-      else params.delete('wt');
-      const query = params.toString();
-      nav.push(query ? `${pathname}?${query}` : pathname);
-      return;
-    }
-    focusTerminal(session.sessionId, session.groupKey);
-  };
-}
-
 export function TerminalBoard({
   workspaceSlug,
   projectSlug,
@@ -134,7 +104,14 @@ export function TerminalBoard({
 }) {
   const isMobile = useIsMobile();
   const sessions = useProjectTerminals(workspaceSlug, projectSlug);
-  const openTerminal = useOpenBoardTerminal(workspaceSlug);
+  const openLiveSession = useOpenLiveSession();
+  const openTerminal = (session: SessionListItem) =>
+    openLiveSession({
+      sessionId: session.sessionId,
+      groupKey: session.groupKey ?? null,
+      workspaceSlug: session.workspaceSlug ?? workspaceSlug,
+      projectSlug: session.projectSlug ?? projectSlug,
+    });
   const [collapseOverrides, setCollapseOverrides] = useState<
     Partial<Record<TerminalLane, boolean>>
   >({});

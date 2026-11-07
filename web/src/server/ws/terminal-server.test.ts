@@ -4,8 +4,11 @@ import { WebSocket } from 'ws';
 import { createAppState, type AppState } from '../trpc/context';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
 import {
+  projects,
+  tasks,
   terminalSessions as terminalSessionsTable,
   terminalSessionHistory as terminalSessionHistoryTable,
+  workspaces,
 } from '../db/schema';
 import {
   createTerminalWebSocketServer,
@@ -16,6 +19,7 @@ import {
   loadPersistedTerminalSessions,
 } from './terminal-session-store';
 import { recordSessionStart } from './terminal-session-history';
+import { listSessionTaskIds } from '../tasks/sessions';
 import { connectWorker, createDispatch, destroyTerminalSession } from '../terminal-dispatch';
 
 let openClients: WebSocket[] = [];
@@ -1804,6 +1808,22 @@ describe('Terminal WebSocket Server', () => {
         workspaceSlug: 'ws1',
         closedAt: null,
       });
+    });
+
+    it('[FR-TERMINAL-1120] should link the spawn task and the bulk tasks to the new session', async () => {
+      const ws = ctx.db.insert(workspaces).values({ name: 'w', slug: 'w' }).returning().get();
+      const project = ctx.db
+        .insert(projects)
+        .values({ workspaceId: ws.id, name: 'p', slug: 'p' })
+        .returning()
+        .get();
+      const [a, b, c] = ['a', 'b', 'c'].map(
+        (title) => ctx.db.insert(tasks).values({ title, projectId: project.id }).returning().get().id,
+      );
+
+      await spawnAgentSession('sess-linked', { taskId: String(a), taskIds: `${b},${c},bad` });
+
+      expect(listSessionTaskIds('sess-linked').sort()).toEqual([a, b, c].sort());
     });
 
     it('[FR-TERMINAL-340] should not record plain shell sessions', async () => {

@@ -6,6 +6,7 @@ import { getDb } from '../../db/client';
 import { tasks, taskDependencies } from '../../db/schema';
 import { validateDependencies, attachBlockedBy } from '../../tasks/validation';
 import { bulkUpdateTasks, bulkDeleteTasks } from '../../tasks/bulk';
+import { listTaskSessions } from '../../tasks/sessions';
 import { broadcastTaskChange } from '../../ws/broadcast';
 import { taskStatusSchema } from '@/lib/task-status';
 import { taskTitleSchema } from '@/lib/task-title';
@@ -106,6 +107,10 @@ export const taskRouter = router({
     }
     return attachBlockedBy([task])[0];
   }),
+
+  listSessions: publicProcedure
+    .input(z.object({ id: z.number() }))
+    .query(({ ctx, input }) => listTaskSessions(ctx.state, input.id)),
 
   update: publicProcedure
     .input(

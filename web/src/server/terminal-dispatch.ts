@@ -19,7 +19,12 @@ import {
   persistTerminalSession,
   deletePersistedTerminalSession,
 } from './ws/terminal-session-store';
-import { recordSessionStart, markSessionClosed } from './ws/terminal-session-history';
+import {
+  recordSessionStart,
+  markSessionClosed,
+  terminalSessionKey,
+} from './ws/terminal-session-history';
+import { linkSpawnedTerminal, listSessionTaskIds } from './tasks/sessions';
 import { clearLiveTargetsForSession } from './live-comment-targets';
 import { AUTO_REVIEW_SPAWNER } from './review/auto-review-spawner';
 
@@ -500,6 +505,11 @@ export function spawnAgentTerminal(
   state.daemonTerminalSessions.ids.add(sessionId);
   persistTerminalSession(sessionId, meta);
   recordSessionStart(sessionId, meta);
+  linkSpawnedTerminal(
+    sessionId,
+    meta,
+    listSessionTaskIds(terminalSessionKey(opts.spawnedBy, callerMeta)),
+  );
   connectWorker(state, sessionId, opts.description);
   broadcastTerminalSessionsChange('created', sessionId, callerMeta.groupKey);
   console.log(
@@ -522,7 +532,7 @@ export function destroyTerminalSession(
 ): TerminalSessionMeta | undefined {
   const meta = state.terminalSessionMeta.get(sessionId);
   if (meta?.agentType) {
-    markSessionClosed(meta.resumedFrom ?? sessionId);
+    markSessionClosed(terminalSessionKey(sessionId, meta));
   }
   state.terminalSessionMeta.delete(sessionId);
   state.daemonTerminalSessions.ids.delete(sessionId);

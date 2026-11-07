@@ -21,7 +21,8 @@ import {
   parkTerminalSession,
 } from '../../terminal-dispatch';
 import { readParkBrief } from '../../hooks/brief';
-import { listSessionHistory } from '../../ws/terminal-session-history';
+import { listSessionHistory, terminalSessionKey } from '../../ws/terminal-session-history';
+import { listSessionTaskIds } from '../../tasks/sessions';
 import { broadcastTerminalWorkersChange } from '../../ws/broadcast';
 
 const PASTE_DIR = '.engy/paste';
@@ -58,10 +59,16 @@ export const terminalRouter = router({
       const state = getAppState();
       const liveKeys = new Set<string>();
       for (const [sessionId, meta] of state.terminalSessionMeta) {
-        liveKeys.add(meta.resumedFrom ?? sessionId);
+        liveKeys.add(terminalSessionKey(sessionId, meta));
       }
       return listSessionHistory(input.workspaceSlug, liveKeys, input.projectSlug);
     }),
+
+  // Keyed by the conversation, so a resumed terminal still shows the tasks of its earlier runs.
+  linkedTasks: publicProcedure.input(z.object({ sessionId: z.string() })).query(({ input }) => {
+    const meta = getAppState().terminalSessionMeta.get(input.sessionId);
+    return listSessionTaskIds(terminalSessionKey(input.sessionId, meta));
+  }),
 
   // Closing a dormant tab cannot go through the usual `{ t: 'kill' }` on the
   // terminal socket — a dormant session has neither a PTY nor a socket — so the

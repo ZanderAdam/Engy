@@ -2,7 +2,7 @@ import { useOnServerEvent } from '@/contexts/events-context';
 import { trpc } from '@/lib/trpc';
 
 /**
- * Keep the "Resume Session" dropdown fresh: every terminal-sessions change
+ * Keep the "Resume Session" dropdown and task session lists fresh: every terminal-sessions change
  * (created/destroyed/killed) can add a history row or return one to the live
  * set, so the closed-session list is refetched on each broadcast.
  */
@@ -12,5 +12,7 @@ export function useSessionHistoryAutoInvalidation(): void {
   useOnServerEvent('TERMINAL_SESSIONS_CHANGE', (payload) => {
     if (payload.action === 'regrouped') return;
     utils.terminal.listSessionHistory.invalidate();
+    utils.task.listSessions.invalidate();
+    utils.terminal.linkedTasks.invalidate();
   });
 }

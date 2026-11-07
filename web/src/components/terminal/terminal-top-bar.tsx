@@ -5,6 +5,7 @@ import { trpc } from '@/lib/trpc';
 import { VLink } from '@/components/tabs/virtual-link';
 import { useVirtualSearchParams } from '@/components/tabs/tab-context';
 import { TerminalTaskActions } from './terminal-task-actions';
+import { orderTaskIds } from './terminal-task-actions.helpers';
 import { branchDiffHref, resolveDiffTarget } from './terminal-diff-target';
 import { useSessionBranch } from './use-session-branch';
 import type { TerminalScope } from './types';
@@ -35,16 +36,21 @@ function useBranchDiffHref(scope: TerminalScope): string | null {
 
 /**
  * Chrome above a terminal: what the session is working on and where to review
- * the result. Rendered only when the scope carries at least one of the two.
+ * the result. Rendered only when the session has a task or a diff to review.
  */
-export function TerminalTopBar({ scope }: { scope: TerminalScope }) {
+export function TerminalTopBar({ sessionId, scope }: { sessionId: string; scope: TerminalScope }) {
   const diffHref = useBranchDiffHref(scope);
-  if (scope.taskId == null && !diffHref) return null;
+  const { data: linkedTaskIds } = trpc.terminal.linkedTasks.useQuery(
+    { sessionId },
+    { enabled: !!scope.agentType },
+  );
+  const taskIds = orderTaskIds(scope.taskId, linkedTaskIds ?? []);
+  if (taskIds.length === 0 && !diffHref) return null;
 
   return (
     <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border bg-background px-2 text-xs">
-      {scope.taskId != null && (
-        <TerminalTaskActions taskId={scope.taskId} workspaceSlug={scope.workspaceSlug} />
+      {taskIds.length > 0 && (
+        <TerminalTaskActions taskIds={taskIds} workspaceSlug={scope.workspaceSlug} />
       )}
       {diffHref && (
         <VLink

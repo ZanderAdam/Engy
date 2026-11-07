@@ -152,6 +152,7 @@ their title string, e.g. `it('[FR-EXECUTION-010] ...', ...)`, and run
 | FR-EXECUTION-290 | WHEN `pushRemoteFile` is called for a task in a Coder workspace, the system SHALL dispatch `REMOTE_FILE_PUSH_REQUEST` to the daemon with the plan path resolved server-side from the local `plans/` directory (falling back to `plans/<ws-slug>-T<id>.plan.md` when no plan file exists) and SHALL clear `tasks.needsPlan` only after a successful push; for non-Coder workspaces the system SHALL clear `tasks.needsPlan` without dispatching. |
 | FR-EXECUTION-300 | WHEN spawning an agent process in host, container, or Coder mode, the system SHALL set `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` in the process environment so CLAUDE.md files from `--add-dir` directories (including the project docs dir) load into context. |
 | FR-EXECUTION-310 | WHEN a quick action launches implementation work (task implement, task group, milestone) in a workspace with `agentWorktrees` enabled AND the terminal is not already scoped to a worktree, the system SHALL append an instruction to the agent's **prompt** — not the context block — telling it to create a dedicated git worktree and work inside it; for every other dispatch — including background executions, which the daemon already places in a worktree — the prompt SHALL be unchanged. |
+| FR-EXECUTION-320 | WHEN an execution starts, the system SHALL link its session to every task it covers: the task for task and planning runs, every task of the group or milestone, and every task of a batch. |
 
 ## Sources
 

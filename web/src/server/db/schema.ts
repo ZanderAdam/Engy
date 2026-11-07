@@ -596,6 +596,34 @@ export const terminalSessionHistory = sqliteTable(
   (table) => [index('idx_tsh_workspace_started').on(table.workspaceSlug, table.startedAt)],
 );
 
+// ── Task Sessions (join table) ──────────────────────────────────────
+
+// `sessionKey` is the agent conversation id for terminals (same key as
+// terminal_session_history) or agent_sessions.sessionId for executions; `kind`
+// tells the two id spaces apart.
+export const taskSessions = sqliteTable(
+  'task_sessions',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    taskId: integer('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    sessionKey: text('session_key').notNull(),
+    kind: text('kind', { enum: ['terminal', 'execution'] }).notNull(),
+    source: text('source', { enum: ['spawn', 'mcp'] }).notNull(),
+    firstSeenAt: text('first_seen_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+    lastSeenAt: text('last_seen_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [
+    uniqueIndex('task_sessions_task_session_unique').on(table.taskId, table.sessionKey),
+    index('idx_task_sessions_session_key').on(table.sessionKey),
+  ],
+);
+
 // ── Usage Analytics ─────────────────────────────────────────────────
 
 // Scan bookkeeping: one row per transcript file on disk, mirroring

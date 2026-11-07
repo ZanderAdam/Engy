@@ -9,6 +9,7 @@ import { getDb } from '../../db/client';
 import { agentSessions, tasks, workspaces } from '../../db/schema';
 import { eq } from 'drizzle-orm';
 import { triggerAutoStart } from './execution';
+import { listSessionTaskIds } from '../../tasks/sessions';
 
 vi.mock('node:os', async () => {
   const actual = await vi.importActual<typeof os>('node:os');
@@ -258,6 +259,21 @@ describe('execution router', () => {
         .get();
       expect(session!.executionMode).toBe('group');
       expect(session!.taskGroupId).toBe(group.id);
+    });
+
+    it('[FR-EXECUTION-320] should link every task of a group run to its session', async () => {
+      const { proj } = await seedProject(caller);
+      const group = await caller.taskGroup.create({ milestoneRef: 'm1', name: 'G' });
+      const t1 = await caller.task.create({ projectId: proj.id, title: 'G1', taskGroupId: group.id });
+      const t2 = await caller.task.create({ projectId: proj.id, title: 'G2', taskGroupId: group.id });
+      createMockDaemon(ctx);
+
+      const { sessionId } = await caller.execution.startExecution({
+        scope: 'taskGroup',
+        id: group.id,
+      });
+
+      expect(listSessionTaskIds(sessionId).sort()).toEqual([t1.id, t2.id].sort());
     });
   });
 
@@ -809,6 +825,17 @@ describe('execution router', () => {
   });
 
   describe('startBatchExecution', () => {
+    it('[FR-EXECUTION-320] should link every batch task to its session', async () => {
+      const { proj } = await seedProject(caller);
+      const t1 = await caller.task.create({ projectId: proj.id, title: 'Batch 1' });
+      const t2 = await caller.task.create({ projectId: proj.id, title: 'Batch 2' });
+      createMockDaemon(ctx);
+
+      const { sessionId } = await caller.execution.startBatchExecution({ taskIds: [t1.id, t2.id] });
+
+      expect(listSessionTaskIds(sessionId).sort()).toEqual([t1.id, t2.id].sort());
+    });
+
     it('should create a session and mark all tasks as in_progress/implementing', async () => {
       const { proj } = await seedProject(caller);
       const t1 = await caller.task.create({ projectId: proj.id, title: 'Batch 1' });
