@@ -84,6 +84,7 @@ export function TaskStatusBadge({
   const button = (
     <button
       type="button"
+      aria-label={clickable ? `Status: ${label}, change status` : `Status: ${label}`}
       className={cn(
         'shrink-0 p-0.5',
         taskStatusColors[status],

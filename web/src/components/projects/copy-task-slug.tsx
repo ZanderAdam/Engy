@@ -36,6 +36,7 @@ export function CopyTaskSlug({ taskId }: CopyTaskSlugProps) {
         <TooltipTrigger asChild>
           <span
             role="button"
+            aria-label={`Copy ${fullSlug}`}
             tabIndex={0}
             onClick={handleClick}
             onKeyDown={(e) => {

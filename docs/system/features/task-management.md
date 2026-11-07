@@ -80,6 +80,7 @@ When `task.create` is called with `type:'ai'` and `status:'todo'` and neither `t
 | FR-TASK-320 | WHEN the user picks a status from the "Status" menu in the bulk-action bar, the browser SHALL set that status on every selected visible task and SHALL leave Select mode. |
 | FR-TASK-330 | WHEN a client asks for a task's sessions (`task.listSessions` / MCP `listTaskSessions`), the system SHALL return, newest first, every linked or spawned-for terminal from any worktree with its state (`live`, `parked` or `ended`), and every background execution of the task or linked to it. |
 | FR-TASK-340 | WHILE a task has sessions, the task dialog SHALL show a Sessions tab. WHEN the user picks Open on a live or parked terminal, the browser SHALL focus it, or switch to its project and worktree first; WHEN the user picks Resume on an ended Claude terminal, the browser SHALL open `claude --resume <conversation id>` in its original directory and container mode, bound to the task. Ended Codex terminals and executions SHALL show no action. |
+| FR-TASK-350 | The task card SHALL give every icon-only control (drag handle, done checkbox, copy id, plan or implement action, more-actions menu, type toggle, status menu, terminal button) an accessible name that says what it does, and SHALL show that name as a tooltip on hover. |
 
 ## Sources
 

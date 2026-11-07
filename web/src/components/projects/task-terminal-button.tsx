@@ -39,6 +39,7 @@ export function TaskTerminalButton({ sessions }: TaskTerminalButtonProps) {
           <TooltipTrigger asChild>
             <button
               type="button"
+              aria-label={`Open terminal: ${sessions[0].scopeLabel}`}
               className="shrink-0 cursor-pointer p-0.5 text-muted-foreground transition-colors hover:text-foreground"
               onClick={(e) => {
                 e.stopPropagation();
@@ -64,6 +65,7 @@ export function TaskTerminalButton({ sessions }: TaskTerminalButtonProps) {
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
+                aria-label={`Open terminal (${sessions.length} sessions)`}
                 className="shrink-0 cursor-pointer p-0.5 text-muted-foreground transition-colors hover:text-foreground"
                 onClick={(e) => e.stopPropagation()}
               >

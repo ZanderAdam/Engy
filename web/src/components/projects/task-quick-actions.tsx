@@ -149,6 +149,7 @@ export function TaskQuickActions({
             <Button
               variant="ghost"
               size="icon-xs"
+              aria-label={tooltip}
               className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
               disabled={disabled || isActive}
               onClick={showImplement ? handleImplement : () => handlePlan()}
@@ -167,15 +168,25 @@ export function TaskQuickActions({
       </TooltipProvider>
 
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="shrink-0 text-muted-foreground transition-colors hover:text-foreground data-[state=open]:text-foreground"
-          >
-            <RiMore2Line className="size-3" />
-          </Button>
-        </DropdownMenuTrigger>
+        <TooltipProvider delayDuration={300}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="More task actions"
+                  className="shrink-0 text-muted-foreground transition-colors hover:text-foreground data-[state=open]:text-foreground"
+                >
+                  <RiMore2Line className="size-3" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p>More task actions</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         <DropdownMenuContent align="start" onClick={(e) => e.stopPropagation()}>
           {isActive ? (
             <DropdownMenuItem onClick={stopExecution}>

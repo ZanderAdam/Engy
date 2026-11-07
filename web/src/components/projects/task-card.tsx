@@ -137,6 +137,8 @@ export function TaskCard({
   const typeInfo = typeIcons[task.type] ?? typeIcons.human;
   const TypeIcon = typeInfo.icon;
   const nextType = task.type === 'human' ? 'ai' : 'human';
+  const typeLabel = `${typeInfo.label} task, switch to ${typeIcons[nextType].label}`;
+  const checkboxLabel = isClosed ? 'Reopen task' : 'Mark task done';
 
   const { data: unansweredByTask } = trpc.question.unansweredByTask.useQuery(
     { projectId: task.projectId ?? undefined },
@@ -179,14 +181,17 @@ export function TaskCard({
       )}
     >
       {dragHandleProps && (
-        <button
-          type="button"
-          className="flex shrink-0 cursor-grab items-center px-1.5 text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
-          onClick={(e) => e.stopPropagation()}
-          {...dragHandleProps}
-        >
-          <RiDraggable className="size-3" />
-        </button>
+        <CardHint label="Drag to move">
+          <button
+            type="button"
+            aria-label="Drag to move"
+            className="flex shrink-0 cursor-grab items-center px-1.5 text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
+            onClick={(e) => e.stopPropagation()}
+            {...dragHandleProps}
+          >
+            <RiDraggable className="size-3" />
+          </button>
+        </CardHint>
       )}
       <div className={cn('min-w-0 flex-1 space-y-0.5', dragHandleProps ? 'py-2 pr-2' : 'contents')}>
       <div className="flex items-center gap-1.5">
@@ -200,21 +205,24 @@ export function TaskCard({
           </span>
         )}
         {showCheckbox && !selectable && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 shrink-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCheckboxChange?.(!isClosed);
-            }}
-          >
-            {isClosed ? (
-              <RiCheckboxLine className="size-4" />
-            ) : (
-              <RiCheckboxBlankLine className="size-4" />
-            )}
-          </Button>
+          <CardHint label={checkboxLabel}>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={checkboxLabel}
+              className="h-6 w-6 shrink-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCheckboxChange?.(!isClosed);
+              }}
+            >
+              {isClosed ? (
+                <RiCheckboxLine className="size-4" />
+              ) : (
+                <RiCheckboxBlankLine className="size-4" />
+              )}
+            </Button>
+          </CardHint>
         )}
         <CopyTaskSlug taskId={task.id} />
         <TaskQuickActions
@@ -224,25 +232,19 @@ export function TaskCard({
           needsPlan={task.needsPlan}
           projectSlug={projectSlug}
         />
-        <TooltipProvider delayDuration={300}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className="shrink-0 cursor-pointer text-muted-foreground hover:opacity-80"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  updateTask.mutate({ id: task.id, type: nextType });
-                }}
-              >
-                <TypeIcon className="size-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="text-xs">
-              {typeInfo.label}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <CardHint label={typeLabel}>
+          <button
+            type="button"
+            aria-label={typeLabel}
+            className="shrink-0 cursor-pointer text-muted-foreground hover:opacity-80"
+            onClick={(e) => {
+              e.stopPropagation();
+              updateTask.mutate({ id: task.id, type: nextType });
+            }}
+          >
+            <TypeIcon className="size-3.5" />
+          </button>
+        </CardHint>
         <TaskStatusBadge taskId={task.id} status={task.status} clickable className="shrink-0" />
         {(task.milestoneRef || task.taskGroupId || execStatus || unansweredCount > 0 || terminalSessions.length > 0) && (
           <div className="ml-auto flex items-center gap-1">
@@ -283,5 +285,18 @@ export function TaskCard({
       </div>
       </div>
     </div>
+  );
+}
+
+function CardHint({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipContent side="top" className="text-xs">
+          {label}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
