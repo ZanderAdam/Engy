@@ -116,8 +116,7 @@ This contract is fixed. A review guide cannot remove or replace it.
 2. **Read outside the diff for system fit.** For each core and supporting group, find the callers
    and dependents of the changed symbols (grep in the repo), and the feature-area docs and FRs that
    cover the behaviour (`trace` / `search` when the Engy MCP tools are available, else
-   `docs/system/features/`). Write how the group plugs into that code: what calls it, what it now
-   calls, which flows change for them.
+   `docs/system/features/`). Use what you find to say who is affected by the group and who is not.
 3. **Rate risk per group and overall.** `level` is `low`, `typical`, `high` or `very_high`: how
    likely the change breaks something, weighed by how much depends on what it touches. `reason`
    names what drives the level, max 300 characters. The overall risk is at least the highest group
@@ -130,14 +129,47 @@ Fields of each `readingOrder` group:
 | `title` | The change in a few words, e.g. "Token check moves into one guard" (max 120) |
 | `files` | Repo-relative paths from the diff |
 | `role` | `core`, `supporting`, `glue` or `tests` |
-| `explanation` | Plain text: what the group changes and why, then its consequences (max 1500) |
-| `systemContext` | Plain text: how it fits the existing system, from step 2 (max 800) |
+| `explanation` | Plain text: what these files change, then the behaviour that results and what a reviewer would miss without this group (max 1500) |
+| `systemContext` | Plain text: who outside these files sees different behaviour, and who sees none: callers, pipelines, users. Do not tell the call order (max 800) |
 | `note` | One line on what the reader must check (max 300) |
 | `risk` | `{ level, reason }` for this group |
 
 Top-level fields: `overview` (plain text, at most three sentences: what the change does and why;
 max 600), `risk` for the whole change, and `summary` (markdown notes, shown collapsed). Wrap
 identifiers in backticks in plain-text fields; they render as code.
+
+#### Writing `explanation` and `systemContext`
+
+- Open with one or two sentences on what changes, described as the mechanism in plain words, not a tour of the functions.
+- Then give the behaviour that results: what runs, fails or is produced differently.
+- Assume the reader has read `overview`. Do not repeat the purpose of the change.
+- Use an identifier to support a claim, never as the subject of a sentence.
+- Write connected prose: link a reason to its fact with "because" or "so".
+- "No behaviour change" is a valid answer, but still say who is affected.
+
+`explanation` for a behaviour change. Bad, it repeats the code:
+
+> `retryWebhook` wraps `sendWebhook` in a loop. `RetryPolicy` adds `maxAttempts` and `backoffMs`. `WebhookQueue.enqueue` now takes a policy argument, and `DEFAULT_POLICY` is exported from `config.ts`.
+
+Good, it is written for a reviewer:
+
+> Failed webhook deliveries are now retried up to five times with longer waits between tries, instead of being dropped after the first error. Only network errors and 5xx replies cause a retry, so a 4xx from a customer endpoint still fails at once and shows in the delivery log. A retry keeps its slot in `WebhookQueue`, so one slow endpoint can now delay other deliveries by up to a minute.
+
+`explanation` for a refactor with no behaviour change. Bad:
+
+> `parseDate` moves from `utils/date.ts` to `lib/time/parse.ts`. `formatDate` is renamed to `formatLocalDate`. 14 imports are updated.
+
+Good:
+
+> Date parsing and formatting move into one module, and the output does not change. The formatter is renamed to `formatLocalDate` because it always used the server's time zone, and the old name hid that. No caller sees different output, because only the imports change.
+
+`systemContext`. Bad, it tells the call order:
+
+> `OrderService.complete` calls `notify`, which calls `WebhookQueue.enqueue`, which then calls `retryWebhook`, which calls `sendWebhook`.
+
+Good, it tells who is affected and who is not:
+
+> Every customer with a webhook gets retries, because order, refund and signup events all go through `WebhookQueue`. Email notifications and the audit log use a different sender, so they do not change. A customer endpoint that cannot safely handle the same event twice can now get duplicates.
 
 ### Step 5: Write results back
 
