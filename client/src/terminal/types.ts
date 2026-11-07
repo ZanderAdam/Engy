@@ -14,5 +14,4 @@ export interface PersistentSession {
   serializeAddon: SerializeAddon;
   lastActivity: number;
   suspendedAt?: number;
-  initialCommandSent: boolean;
 }

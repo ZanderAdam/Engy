@@ -35,6 +35,17 @@ const ACTIVITY_DEBOUNCE_MS = 3_000;
 const ACTIVITY_SUPPRESS_MS = 3_000;
 const RESIZE_SUPPRESS_MS = 1_000;
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+// Typing the command into the PTY races shell init: a startup prompt
+// (e.g. oh-my-zsh's update [Y/n]) consumes the first typed bytes.
+function runThenShell(command: string | undefined, shell: string): string {
+  const exec = `exec ${shellQuote(shell)}`;
+  return command ? `${command}\n${exec}` : exec;
+}
+
 interface SessionActivity {
   parser: TerminalActivityParser;
   tracker: ReturnType<typeof createActivityTracker>;
@@ -132,7 +143,7 @@ export class TerminalManager {
   }
 
   private spawnInContainer(opts: SpawnOptions): void {
-    const { workingDir, containerWorkspaceFolder: folder = '' } = opts;
+    const { workingDir, command, containerWorkspaceFolder: folder = '' } = opts;
     this.spawnPty(opts, 'devcontainer', [
       'exec',
       '--workspace-folder',
@@ -140,8 +151,9 @@ export class TerminalManager {
       '--remote-env',
       `${ADD_DIR_CLAUDE_MD_ENV}=1`,
       '/bin/bash',
+      '-i',
       '-c',
-      `cd '${workingDir.replace(/'/g, "'\\''")}' && exec /bin/bash`,
+      `cd ${shellQuote(workingDir)} && ${runThenShell(command, '/bin/bash')}`,
     ]);
   }
 
@@ -151,30 +163,18 @@ export class TerminalManager {
     if (serverPort) {
       sshArgs.push('-R', `${serverPort}:localhost:${serverPort}`);
     }
-    const escapedDir = workingDir.replace(/'/g, "'\\''");
-    // Pass the command directly in the shell invocation so it runs after cd,
-    // avoiding timing issues with SSH startup output triggering initialCommandSent too early
-    const shellCmd = command
-      ? `cd '${escapedDir}' && ${command}; exec /bin/bash`
-      : `cd '${escapedDir}' && exec /bin/bash`;
+    const shellCmd = `cd ${shellQuote(workingDir)} && ${runThenShell(command, '/bin/bash')}`;
     sshArgs.push(workspace, '--', '/bin/bash', '-c', shellCmd);
-    // The command is baked into the shell invocation above. Mark it as sent, or
-    // the first output chunk makes spawnPty write it to the PTY a second time.
-    this.spawnPty(opts, 'coder', sshArgs, undefined, { commandInShell: true });
+    this.spawnPty(opts, 'coder', sshArgs);
   }
 
   private spawnLocal(opts: SpawnOptions): void {
     const shell = process.env.SHELL ?? '/bin/bash';
-    this.spawnPty(opts, shell, [], opts.workingDir);
+    const args = opts.command ? ['-i', '-c', runThenShell(opts.command, shell)] : [];
+    this.spawnPty(opts, shell, args, opts.workingDir);
   }
 
-  private spawnPty(
-    opts: SpawnOptions,
-    cmd: string,
-    args: string[],
-    cwd?: string,
-    { commandInShell = false } = {},
-  ): void {
+  private spawnPty(opts: SpawnOptions, cmd: string, args: string[], cwd?: string): void {
     const { sessionId, workingDir, cols, rows, command } = opts;
 
     let ptyProcess: ReturnType<typeof pty.spawn>;
@@ -235,7 +235,6 @@ export class TerminalManager {
       screen,
       serializeAddon,
       lastActivity: Date.now(),
-      initialCommandSent: commandInShell,
     };
     this.sessions.set(sessionId, session);
     void this.branchWatcher
@@ -266,13 +265,6 @@ export class TerminalManager {
       const { hasBell, hasPrompt } = activityParser.parse(data);
       if (hasBell) activityTracker.handleBell();
       else if (data.length > 0) activityTracker.bumpActivity(hasPrompt);
-
-      // Send initial command once we get first output (shell is ready)
-      if (command && !session.initialCommandSent) {
-        session.initialCommandSent = true;
-        console.log(`[terminal] Sending initial command for session ${sessionId}: ${command}`);
-        ptyProcess.write(command + '\r');
-      }
 
       if (session.state === 'active') {
         this.sendToServer?.(JSON.stringify({ t: 'o', sessionId, d: data }));

@@ -40,7 +40,6 @@ function makeStubSession(id: string) {
     screen: { dispose: vi.fn() } as unknown as Terminal,
     serializeAddon: { serialize: vi.fn(() => '') } as unknown as SerializeAddon,
     lastActivity: Date.now(),
-    initialCommandSent: false,
     ptyProcess: mockPtyProcess as unknown as IPty,
     workingDir: '/tmp',
   };
@@ -180,12 +179,45 @@ describe('TerminalManager', () => {
     expect(replay.snapshot).toContain('hello');
   });
 
-  it('sends initial command on first data event', () => {
-    manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24, command: 'ls' });
-    onDataCallback?.('$');
+  describe('spawn command', () => {
+    const originalShell = process.env.SHELL;
+    beforeEach(() => {
+      process.env.SHELL = '/bin/zsh';
+    });
+    afterEach(() => {
+      process.env.SHELL = originalShell;
+    });
 
-    expect(mockPtyProcess.write).toHaveBeenCalledWith('ls\r');
-    expect(sessions.get('abc')!.initialCommandSent).toBe(true);
+    it('[FR-TERMINAL-1180] should pass the command to an interactive local shell and keep the shell after it exits', () => {
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24, command: 'claude' });
+
+      expect(mockedSpawn).toHaveBeenCalledWith(
+        '/bin/zsh',
+        ['-i', '-c', "claude\nexec '/bin/zsh'"],
+        expect.objectContaining({ cwd: '/tmp' }),
+      );
+    });
+
+    it('[FR-TERMINAL-1180] should never type the command into the PTY, so a startup prompt cannot eat it', () => {
+      manager.spawn({ sessionId: 'abc', workingDir: '/tmp', cols: 80, rows: 24, command: 'claude' });
+      onDataCallback?.('[oh-my-zsh] Would you like to update? [Y/n] ');
+
+      expect(mockPtyProcess.write).not.toHaveBeenCalled();
+    });
+
+    it('[FR-TERMINAL-1180] should run the command after cd inside a devcontainer', () => {
+      manager.spawn({
+        sessionId: 'abc',
+        workingDir: "/w/it's",
+        cols: 80,
+        rows: 24,
+        command: 'claude',
+        containerWorkspaceFolder: '/ws',
+      });
+
+      const args = mockedSpawn.mock.calls[0][1] as string[];
+      expect(args.at(-1)).toBe("cd '/w/it'\\''s' && claude\nexec '/bin/bash'");
+    });
   });
 
   it('[FR-TERMINAL-090] sends compact exit message when pty exits', () => {

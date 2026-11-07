@@ -30,6 +30,7 @@ Use `this.sendToServer?.(JSON.stringify({...}))` — no helper today, but if you
 ## Spawn modes
 
 - Local shell: `spawnLocal` via `node-pty`.
+- Every mode passes the spawn `command` to the shell as an argument (`runThenShell`). Never write it into the PTY: a shell startup prompt (oh-my-zsh's update `[Y/n]`) reads the typed bytes and the command loses its first character.
 - Devcontainer: `spawnInContainer` shells out via `devcontainer exec --workspace-folder <folder>`.
 - Coder workspace: `spawnInCoder` uses `coder ssh --no-wait` with optional reverse port (`-R`) for server callback.
 
