@@ -619,6 +619,8 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-1130 | WHEN an agent connected at `/mcp/<terminalSessionId>` calls `updateTask` on an existing task, the system SHALL link that task to the caller's conversation id and refresh the link's `lastSeenAt`. Reads (`getTask`, `listTasks`), `createTask`, anonymous `/mcp` callers and UI edits SHALL NOT create a link. |
 | FR-TERMINAL-1140 | WHILE a history row's session is linked to a task, the system SHALL exclude it from the 50-row per-workspace prune and from that cap's count. |
 | FR-TERMINAL-1150 | The terminal top bar SHALL show every task linked to the session, the task the terminal opened for first and the rest by most recent link, each one opening its task. |
+| FR-TERMINAL-1160 | The terminal board heading SHALL be a toggle that hides and shows all its lanes, on desktop and mobile. WHILE the board is collapsed, the heading SHALL show the session count of each non-empty lane. The open or collapsed state SHALL persist in the browser and SHALL apply in every tab; the board SHALL start open. |
+| FR-TERMINAL-1170 | WHEN a session's lane on the terminal board changes to Working, Waiting or Done, the board SHALL keep the card in its old lane until the new lane holds for 5 seconds, and SHALL NOT move the card WHEN the lane changes back inside that time. A move to Idle or Backlog, a move out of Backlog, and a session that is new to the board SHALL show at once. The hold SHALL apply to the board only; badges and server activity state SHALL follow the live state. |
 
 ## Sources
 

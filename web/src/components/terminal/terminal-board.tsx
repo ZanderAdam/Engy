@@ -1,13 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { RiArrowRightSLine } from '@remixicon/react';
 import { CollapsedLaneRail } from '@/components/projects/task-views/collapsed-lane-rail';
 import { CollapsedLaneStrip } from '@/components/projects/task-views/collapsed-lane-strip';
 import { laneCollapsed } from '@/components/projects/task-views/kanban-collapse';
 import { KanbanLaneContent } from '@/components/projects/task-views/kanban-lane-content';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useProjectTerminals } from '@/hooks/use-project-terminals';
+import { createPersistentToggle } from '@/lib/persistent-value';
 import { AttentionBadge } from './attention-badge';
 import { sessionToTab, type SessionListItem } from './session-to-tab';
 import {
@@ -18,7 +20,10 @@ import {
   type TerminalLane,
 } from './terminal-board-model';
 import { resolveTerminalLabel } from './terminal-label';
+import { useHeldTerminalLanes } from './use-held-terminal-lanes';
 import { useOpenLiveSession } from './use-open-live-session';
+
+const boardOpen = createPersistentToggle('engy:terminal-board-open:v1', true);
 
 const MOBILE_LANE_PRIORITY: TerminalLane[] = ['waiting', 'active', 'done', 'idle', 'backlog'];
 
@@ -43,9 +48,7 @@ function TerminalBoardCard({
         <AttentionBadge needsAttention={session.needsAttention} />
       </span>
       {session.worktreeBranch && (
-        <span className="truncate text-[10px] text-muted-foreground">
-          {session.worktreeBranch}
-        </span>
+        <span className="truncate text-[10px] text-muted-foreground">{session.worktreeBranch}</span>
       )}
     </button>
   );
@@ -95,6 +98,51 @@ function TerminalLaneColumn({
   );
 }
 
+function LaneCountSummary({ lanes }: { lanes: Record<TerminalLane, SessionListItem[]> }) {
+  return (
+    <span className="flex items-center gap-3 text-xs text-muted-foreground">
+      {TERMINAL_LANES.filter((lane) => lanes[lane].length > 0).map((lane) => (
+        <span key={lane} className="flex items-center gap-1.5">
+          <span className={`h-2 w-2 shrink-0 rounded-full ${TERMINAL_LANE_DOT_COLORS[lane]}`} />
+          {TERMINAL_LANE_LABELS[lane]} {lanes[lane].length}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+export function TerminalBoardSection({
+  open,
+  onOpenChange,
+  lanes,
+  children,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  lanes: Record<TerminalLane, SessionListItem[]>;
+  children: React.ReactNode;
+}) {
+  return (
+    <Collapsible asChild open={open} onOpenChange={onOpenChange}>
+      <section aria-label="Terminals" className="flex flex-col gap-2">
+        <div className="flex items-center gap-3">
+          <h3 className="text-xs font-semibold">
+            <CollapsibleTrigger className="flex items-center gap-1 hover:text-foreground/80">
+              <RiArrowRightSLine
+                aria-hidden
+                className={`size-4 transition-transform${open ? ' rotate-90' : ''}`}
+              />
+              Terminals
+            </CollapsibleTrigger>
+          </h3>
+          {!open && <LaneCountSummary lanes={lanes} />}
+        </div>
+        <CollapsibleContent>{children}</CollapsibleContent>
+      </section>
+    </Collapsible>
+  );
+}
+
 export function TerminalBoard({
   workspaceSlug,
   projectSlug,
@@ -104,6 +152,12 @@ export function TerminalBoard({
 }) {
   const isMobile = useIsMobile();
   const sessions = useProjectTerminals(workspaceSlug, projectSlug);
+  const laneOf = useHeldTerminalLanes(sessions);
+  const open = useSyncExternalStore(
+    boardOpen.subscribe,
+    boardOpen.get,
+    boardOpen.getServerSnapshot,
+  );
   const openLiveSession = useOpenLiveSession();
   const openTerminal = (session: SessionListItem) =>
     openLiveSession({
@@ -119,7 +173,7 @@ export function TerminalBoard({
 
   if (!sessions || sessions.length === 0) return null;
 
-  const lanes = groupTerminalsByLane(sessions);
+  const lanes = groupTerminalsByLane(sessions, laneOf);
   const onlyBacklog = lanes.backlog.length === sessions.length;
   const collapsedWith = (lane: TerminalLane, override: boolean | undefined) => {
     if (override === undefined && onlyBacklog && lane === 'backlog') return false;
@@ -132,8 +186,7 @@ export function TerminalBoard({
     expandedLane ?? MOBILE_LANE_PRIORITY.find((lane) => lanes[lane].length > 0) ?? 'idle';
 
   return (
-    <section aria-label="Terminals" className="flex flex-col gap-2">
-      <h3 className="text-xs font-semibold">Terminals</h3>
+    <TerminalBoardSection open={open} onOpenChange={boardOpen.set} lanes={lanes}>
       {isMobile ? (
         <div className="flex flex-col gap-px border border-border bg-border">
           {TERMINAL_LANES.map((lane) =>
@@ -185,6 +238,6 @@ export function TerminalBoard({
           )}
         </div>
       )}
-    </section>
+    </TerminalBoardSection>
   );
 }
