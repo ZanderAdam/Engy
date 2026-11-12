@@ -601,7 +601,7 @@ export function DiffReviewSurface({
                     <GuideGroupCard
                       group={selectedGroup}
                       total={guideGroups.length}
-                      className="max-h-[30dvh] shrink-0 overflow-y-auto"
+                      className="max-h-[30dvh] shrink-0"
                     />
                   )}
                   {selectedFileData && (

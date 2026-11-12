@@ -35,7 +35,7 @@ An agent review writes one summary thread for the PR comment branch (FR-PRREVIEW
 Each `readingOrder` group has a title, files and a note to check, and optionally a `role` (`core`, `supporting`, `glue`, `tests`), an `explanation`, a `systemContext` (how the group fits the existing system) and its own `risk`. Groups written before these fields existed still show, with title, files and note only. `groupByChapters` (`web/src/components/diff/guide-groups.ts`) turns the groups into the order of the review, on the Diffs tab and the PR Files tab alike:
 
 - The file list shows one collapsible section per group, numbered, with the group risk, and opens its folders (`FileGroups`). Files that no group lists go into a last "Other changes" group. In the staged/unstaged view of pending work the list keeps its two sections.
-- The stack shows the files in group order. A group card (`GuideGroupCard`) sits inside the row of the group's first file, so scrolling to that file shows the card first. In one-file mode the card of the selected file's group sits above the file.
+- The stack shows the files in group order. A group card (`GuideGroupCard`) sits inside the row of the group's first file, so scrolling to that file shows the card first. In one-file mode the card of the selected file's group sits above the file. The header row of each card hides or shows the rest of the card, and the choice applies to every card and stays after a reload.
 - `]`/`[` follow the group order. `}`/`{` go to the first file of the next or previous group.
 
 Plain-text group fields render backtick spans as code (`inlineCodeSegments`, `web/src/lib/inline-code.ts`).
@@ -98,6 +98,7 @@ Auto review and manual "Review with agent" start a claude terminal session in th
 | FR-PRREVIEW-330 | WHEN a review summary has reading-order groups, the system SHALL order the diff files group by group, in group order and in the order each group lists its paths, SHALL give a path listed by two groups to the first only, SHALL drop a group none of whose paths are in the diff, SHALL keep every row of a path changed on both sides of the index together, and SHALL put the files no group lists in a last "Other changes" group in diff order; WHERE there are no groups, the order SHALL stay the diff order. |
 | FR-PRREVIEW-340 | WHILE the review page is active and no text field, dialog, menu, listbox or popover has focus, the system SHALL map `}` to the first file of the next change group and `{` to the first file of the previous one, with or without Shift, wrapping at both ends and starting at the first or last group when no file is current; with Ctrl, Cmd or Alt it SHALL ignore them. |
 | FR-PRREVIEW-350 | WHEN a guided-review plain-text field is shown, the system SHALL render each backtick-delimited span on one line as code and SHALL keep an unmatched backtick as text. |
+| FR-PRREVIEW-360 | WHEN the user activates the header row of a change group card, the system SHALL hide the write-up of every group card, or show it again when hidden, SHALL keep the header row visible, and SHALL keep the choice in `localStorage` so it holds across files, groups and reloads; the write-up SHALL show by default. |
 
 ## Sources
 
