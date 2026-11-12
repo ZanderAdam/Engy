@@ -24,6 +24,7 @@ import {
   fleetingMemories,
   permanentMemories,
   frontmatter,
+  taskSessions,
 } from '../db/schema';
 
 vi.mock('../search/qmd-store', async (importOriginal) => {
@@ -268,6 +269,63 @@ describe('MCP Server', () => {
         const { data } = await call({ id: task.id, status: 'in_progress' });
 
         expect(data).toEqual({ success: true });
+      });
+
+      it('[FR-TERMINAL-1130] should link the task to the calling terminal by its conversation id', async () => {
+        const task = getDb().insert(tasks).values({ title: 'T', projectId }).returning().get();
+        ctx.state.terminalSessionMeta.set('term-1', {
+          scopeType: 'project',
+          scopeLabel: 'x',
+          workingDir: '/repo',
+          resumedFrom: 'conv-1',
+          cols: 80,
+          rows: 24,
+        });
+
+        await callTool(getMcpServer('term-1'), 'updateTask')({ id: task.id, status: 'review' });
+
+        const links = getDb().select().from(taskSessions).all();
+        expect(links).toMatchObject([
+          { taskId: task.id, sessionKey: 'conv-1', kind: 'terminal', source: 'mcp' },
+        ]);
+      });
+
+      it('[FR-TASK-330] should list the sessions of a task through listTaskSessions', async () => {
+        const task = getDb().insert(tasks).values({ title: 'T', projectId }).returning().get();
+        await callTool(getMcpServer('term-9'), 'updateTask')({ id: task.id, status: 'review' });
+        ctx.state.terminalSessionMeta.set('term-9', {
+          scopeType: 'project',
+          scopeLabel: 'worker',
+          workingDir: '/repo',
+          cols: 80,
+          rows: 24,
+        });
+
+        const { data } = await callTool(getMcpServer(), 'listTaskSessions')({ id: task.id });
+
+        expect(data).toMatchObject([{ kind: 'terminal', key: 'term-9', state: 'live' }]);
+      });
+
+      it('[FR-TERMINAL-1130] should not link a task that the caller only reads', async () => {
+        const task = getDb().insert(tasks).values({ title: 'T', projectId }).returning().get();
+
+        await callTool(getMcpServer('term-1'), 'getTask')({ id: task.id });
+
+        expect(getDb().select().from(taskSessions).all()).toHaveLength(0);
+      });
+
+      it('[FR-TERMINAL-1130] should not link when the caller has no terminal identity', async () => {
+        const task = getDb().insert(tasks).values({ title: 'T', projectId }).returning().get();
+
+        await callTool(getMcpServer(), 'updateTask')({ id: task.id, status: 'review' });
+
+        expect(getDb().select().from(taskSessions).all()).toHaveLength(0);
+      });
+
+      it('[FR-TERMINAL-1130] should not link when the task does not exist', async () => {
+        await callTool(getMcpServer('term-1'), 'updateTask')({ id: 9999, status: 'done' });
+
+        expect(getDb().select().from(taskSessions).all()).toHaveLength(0);
       });
 
       it('should return error for missing task', async () => {

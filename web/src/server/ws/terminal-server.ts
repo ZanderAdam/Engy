@@ -41,7 +41,9 @@ import {
   recordSessionStart,
   updateSessionSummary,
   markSessionClosed,
+  terminalSessionKey,
 } from './terminal-session-history';
+import { linkSpawnedTerminal } from '../tasks/sessions';
 
 // How long a browser connect with no session metadata waits for the daemon's
 // `{ t: 'sync' }` before classifying as spawn-vs-reconnect. Covers the
@@ -65,6 +67,19 @@ function waitForDaemonSync(state: AppState, timeoutMs: number): Promise<void> {
     }, timeoutMs);
     state.daemonTerminalSessions.syncWaiters.add(waiter);
   });
+}
+
+function parsePositiveInt(raw: string | null | undefined): number | undefined {
+  const parsed = raw ? parseInt(raw, 10) : NaN;
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function parseTaskIds(raw: string | null): number[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map(parsePositiveInt)
+    .filter((id): id is number => id !== undefined);
 }
 
 function parseQueryParams(url: string): URLSearchParams {
@@ -298,13 +313,9 @@ async function handleTerminalConnection(
   const groupKey = params.get('groupKey') ?? undefined;
   const workspaceSlug = params.get('workspaceSlug') ?? '';
   const containerMode = params.get('containerMode') ?? undefined;
-  const taskIdRaw = params.get('taskId');
-  const taskIdParsed = taskIdRaw ? parseInt(taskIdRaw, 10) : NaN;
-  const taskId = Number.isInteger(taskIdParsed) && taskIdParsed > 0 ? taskIdParsed : undefined;
-  const projectIdRaw = params.get('projectId');
-  const projectIdParsed = projectIdRaw ? parseInt(projectIdRaw, 10) : NaN;
-  const projectId =
-    Number.isInteger(projectIdParsed) && projectIdParsed > 0 ? projectIdParsed : undefined;
+  const taskId = parsePositiveInt(params.get('taskId'));
+  const projectId = parsePositiveInt(params.get('projectId'));
+  const linkTaskIds = parseTaskIds(params.get('taskIds'));
   const projectSlug = params.get('projectSlug') ?? undefined;
   const worktreeBranch = params.get('worktreeBranch') ?? undefined;
   const resumedFrom = params.get('resumedFrom') ?? undefined;
@@ -374,7 +385,7 @@ async function handleTerminalConnection(
           if (title && title !== meta.lastTitle) {
             meta.lastTitle = title;
             persistTerminalSession(sessionId, meta);
-            updateSessionSummary(meta.resumedFrom ?? sessionId, title);
+            updateSessionSummary(terminalSessionKey(sessionId, meta), title);
           }
         }
       } catch {
@@ -623,6 +634,7 @@ async function handleTerminalConnection(
         // Write-ahead history: the row exists from spawn so no crash timing
         // (daemon death, power loss) can lose the session from the resume list.
         recordSessionStart(sessionId, metaFromParams);
+        linkSpawnedTerminal(sessionId, metaFromParams, linkTaskIds);
         broadcastTerminalSessionsChange('created', sessionId, groupKey);
       } else {
         console.log(`[terminal] spawn path but no daemon for sid=${short}`);
@@ -850,7 +862,7 @@ export function createTerminalRelayWebSocketServer(state: AppState): WebSocketSe
         console.log(`[terminal-relay] Exit for session ${sessionId}, cleaning up meta and WS`);
         const exitMeta = state.terminalSessionMeta.get(sessionId);
         if (exitMeta?.agentType) {
-          markSessionClosed(exitMeta.resumedFrom ?? sessionId);
+          markSessionClosed(terminalSessionKey(sessionId, exitMeta));
         }
         state.terminalSessions.delete(sessionId);
         state.terminalSessionMeta.delete(sessionId);

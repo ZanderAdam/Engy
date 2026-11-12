@@ -81,11 +81,7 @@ const riskSchema = z.object({
   level: z
     .enum(['low', 'typical', 'high', 'very_high'])
     .describe('How likely the change breaks something, weighed by how much depends on it'),
-  reason: z
-    .string()
-    .min(1)
-    .max(300)
-    .describe('One or two sentences naming what drives the level'),
+  reason: z.string().min(1).max(300).describe('One or two sentences naming what drives the level'),
 });
 
 const readingOrderField = z
@@ -114,7 +110,7 @@ const readingOrderField = z
         .max(1500)
         .optional()
         .describe(
-          'Plain text: what this group changes and why, then its consequences. Wrap identifiers in backticks',
+          'Plain text: what these files change, in a sentence or two, then the behaviour that results and what a reviewer would miss without this group. Do not repeat the overview. Wrap identifiers in backticks',
         ),
       systemContext: z
         .string()
@@ -122,7 +118,7 @@ const readingOrderField = z
         .max(800)
         .optional()
         .describe(
-          'Plain text: how this group fits the existing system — the callers, flows and feature areas it touches, from reading code outside the diff',
+          'Plain text: who outside these files sees different behaviour, and who sees none, from reading code outside the diff. Do not tell the call order',
         ),
       risk: riskSchema.optional().describe('Risk of this group alone'),
     }),

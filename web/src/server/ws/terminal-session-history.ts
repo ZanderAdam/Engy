@@ -1,6 +1,6 @@
 import { eq, notInArray, desc, and, isNull } from 'drizzle-orm';
 import { getDb } from '../db/client';
-import { terminalSessionHistory } from '../db/schema';
+import { taskSessions, terminalSessionHistory } from '../db/schema';
 import type { AppState, TerminalSessionMeta } from '../trpc/context';
 
 interface SessionHistoryRow {
@@ -17,8 +17,16 @@ interface SessionHistoryRow {
   closedAt: string | null;
 }
 
-// Caps rows per workspace bucket (null slug = its own bucket).
+// Caps rows per workspace bucket (null slug = its own bucket). Sessions linked
+// to a task are exempt: a task must keep every session it can resume.
 const MAX_HISTORY_ROWS = 50;
+
+export function terminalSessionKey(
+  terminalSessionId: string,
+  meta: Pick<TerminalSessionMeta, 'resumedFrom'> | undefined,
+): string {
+  return meta?.resumedFrom ?? terminalSessionId;
+}
 
 export function recordSessionStart(terminalSessionId: string, meta: TerminalSessionMeta): void {
   if (!meta.agentType) return;
@@ -26,7 +34,7 @@ export function recordSessionStart(terminalSessionId: string, meta: TerminalSess
     const db = getDb();
     // Key by the agent-CLI conversation id so resume cycles share one row —
     // the terminal id is only the key for first-run sessions.
-    const key = meta.resumedFrom ?? terminalSessionId;
+    const key = terminalSessionKey(terminalSessionId, meta);
     const now = new Date().toISOString();
     db.insert(terminalSessionHistory)
       .values({
@@ -119,7 +127,7 @@ export function getHistoryRow(sessionId: string): SessionHistoryRow | null {
 export function liveHistoryKeys(state: Pick<AppState, 'terminalSessionMeta'>): Set<string> {
   const keys = new Set<string>();
   for (const [sessionId, meta] of state.terminalSessionMeta) {
-    keys.add(meta.resumedFrom ?? sessionId);
+    keys.add(terminalSessionKey(sessionId, meta));
   }
   return keys;
 }
@@ -157,10 +165,15 @@ export function listSessionHistory(
 function pruneHistoryBucket(workspaceSlug: string | null): void {
   try {
     const db = getDb();
-    const bucketCondition =
+    const bucketCondition = and(
       workspaceSlug === null
         ? isNull(terminalSessionHistory.workspaceSlug)
-        : eq(terminalSessionHistory.workspaceSlug, workspaceSlug);
+        : eq(terminalSessionHistory.workspaceSlug, workspaceSlug),
+      notInArray(
+        terminalSessionHistory.sessionId,
+        db.select({ sessionKey: taskSessions.sessionKey }).from(taskSessions),
+      ),
+    );
 
     const rows = db
       .select({ sessionId: terminalSessionHistory.sessionId })

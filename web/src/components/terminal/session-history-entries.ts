@@ -1,7 +1,12 @@
 import { RiHistoryLine, RiRobot2Line } from '@remixicon/react';
 import { buildAgentCommand, type WorkspaceAgentSettings } from '@/lib/agent-types';
 import { projectGroupKey, workspaceGroupKey } from './group-key';
-import type { ContainerMode, TerminalDropdownEntry, TerminalDropdownGroup } from './types';
+import type {
+  ContainerMode,
+  TerminalDropdownEntry,
+  TerminalDropdownGroup,
+  TerminalScope,
+} from './types';
 
 /** Structural mirror of the server's SessionHistoryRow (tRPC-inferred). */
 export interface SessionHistoryItem {
@@ -16,6 +21,44 @@ export interface SessionHistoryItem {
   containerMode: string | null;
   startedAt: string;
   closedAt: string | null;
+}
+
+type ResumableSession = Pick<
+  SessionHistoryItem,
+  'sessionId' | 'scopeLabel' | 'workingDir' | 'projectSlug' | 'worktreeBranch' | 'containerMode'
+>;
+
+interface ResumeScopeOptions {
+  workspaceSlug: string;
+  mcpUrl: string | undefined;
+  agentSettings: WorkspaceAgentSettings | null | undefined;
+  projectDir?: string;
+  taskId?: number;
+}
+
+export function buildResumeScope(row: ResumableSession, opts: ResumeScopeOptions): TerminalScope {
+  const groupKey = row.projectSlug
+    ? projectGroupKey(opts.workspaceSlug, row.projectSlug, row.worktreeBranch ?? undefined)
+    : workspaceGroupKey(opts.workspaceSlug);
+  return {
+    scopeType: row.projectSlug ? 'project' : 'workspace',
+    scopeLabel: row.scopeLabel,
+    workingDir: row.workingDir,
+    command: buildAgentCommand('claude', {
+      resumeSessionId: row.sessionId,
+      mcpUrl: opts.mcpUrl,
+      agentSettings: opts.agentSettings,
+      additionalDirs: opts.projectDir ? [opts.projectDir] : undefined,
+    }),
+    groupKey,
+    workspaceSlug: opts.workspaceSlug,
+    containerMode: (row.containerMode ?? undefined) as ContainerMode | undefined,
+    projectSlug: row.projectSlug ?? undefined,
+    worktreeBranch: row.worktreeBranch ?? undefined,
+    taskId: opts.taskId,
+    agentType: 'claude',
+    resumedFrom: row.sessionId,
+  };
 }
 
 interface SessionHistoryGroupOptions {
@@ -100,13 +143,6 @@ export function buildSessionHistoryGroup(
   }
   if (buckets.size === 0) return undefined;
 
-  function groupKeyFor(row: { projectSlug: string | null; worktreeBranch: string | null }): string {
-    if (row.projectSlug) {
-      return projectGroupKey(opts.workspaceSlug, row.projectSlug, row.worktreeBranch ?? undefined);
-    }
-    return workspaceGroupKey(opts.workspaceSlug);
-  }
-
   function resumeEntry(row: SessionHistoryItem): TerminalDropdownEntry {
     const when = relativeTime(row.closedAt ?? row.startedAt, opts.now);
     const summary = row.summary || row.scopeLabel;
@@ -115,24 +151,7 @@ export function buildSessionHistoryGroup(
       label: `${truncate(summary)} · ${when}`,
       tooltip: `${summary} — ${row.workingDir}`,
       icon: RiHistoryLine,
-      scope: {
-        scopeType: row.projectSlug ? 'project' : 'workspace',
-        scopeLabel: row.scopeLabel,
-        workingDir: row.workingDir,
-        command: buildAgentCommand('claude', {
-          resumeSessionId: row.sessionId,
-          mcpUrl: opts.mcpUrl,
-          agentSettings: opts.agentSettings,
-          additionalDirs: opts.projectDir ? [opts.projectDir] : undefined,
-        }),
-        groupKey: groupKeyFor(row),
-        workspaceSlug: opts.workspaceSlug,
-        containerMode: (row.containerMode ?? undefined) as ContainerMode | undefined,
-        projectSlug: row.projectSlug ?? undefined,
-        worktreeBranch: row.worktreeBranch ?? undefined,
-        agentType: 'claude',
-        resumedFrom: row.sessionId,
-      },
+      scope: buildResumeScope(row, opts),
     };
   }
 

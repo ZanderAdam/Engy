@@ -88,6 +88,7 @@ export function useBulkTaskActions(opts: {
       }),
       scopeLabel: `impl: ${formatTaskCount(implementableTasks.length)}`,
       containerMode: workspace?.containerEnabled ? 'container' : undefined,
+      linkTaskIds: implementableTasks.map((task) => task.id),
       implementing: true,
     });
     const idsToPromote = implementableTasks

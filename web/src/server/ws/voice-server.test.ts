@@ -193,6 +193,10 @@ describe('voice WebSocket server', () => {
   beforeAll(() => {
     process.env.ENGY_DIR = TEST_ENGY_DIR;
     resetDb();
+    // The dir is kept for the model cache, so a DB from another branch's migrations can be left in it.
+    for (const suffix of ['', '-wal', '-shm']) {
+      fs.rmSync(path.join(TEST_ENGY_DIR, `engy.db${suffix}`), { force: true });
+    }
     runMigrations();
     const db = getDb();
     db.delete(workspaces).run();

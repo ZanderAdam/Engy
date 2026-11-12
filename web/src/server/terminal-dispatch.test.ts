@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type WebSocket from 'ws';
 import { createAppState, type AppState } from './trpc/context';
 import { setupTestDb, type TestContext } from './trpc/test-helpers';
-import { terminalSessionHistory } from './db/schema';
+import { projects, tasks, terminalSessionHistory, workspaces } from './db/schema';
+import { linkTaskSessions, listSessionTaskIds } from './tasks/sessions';
 import { recordSessionStart } from './ws/terminal-session-history';
 import {
   getDispatch,
@@ -474,19 +475,19 @@ describe('terminal dispatch', () => {
     beforeEach(() => addSession(state, 'w1', { agentType: 'claude' }));
     const frame = (d: string) => JSON.stringify({ t: 'i', sessionId: 'w1', d });
 
-    it('[FR-TERMINAL-1170] should stamp the session on real keystrokes', () => {
+    it('[FR-TERMINAL-1230] should stamp the session on real keystrokes', () => {
       recordHumanInput(state, 'w1', frame('ls\r'));
       expect(state.terminalSessionMeta.get('w1')!.lastHumanInputAt).toBe(Date.now());
     });
 
-    it('[FR-TERMINAL-1170] should ignore xterm focus and cursor-position reports', () => {
+    it('[FR-TERMINAL-1230] should ignore xterm focus and cursor-position reports', () => {
       for (const report of ['\x1b[I', '\x1b[O', '\x1b[12;40R', '\x1b[?1;2c']) {
         recordHumanInput(state, 'w1', frame(report));
       }
       expect(state.terminalSessionMeta.get('w1')!.lastHumanInputAt).toBeUndefined();
     });
 
-    it('[FR-TERMINAL-1170] should count arrow keys and ignore malformed frames and unknown sessions', () => {
+    it('[FR-TERMINAL-1230] should count arrow keys and ignore malformed frames and unknown sessions', () => {
       recordHumanInput(state, 'w1', '{not json');
       expect(state.terminalSessionMeta.get('w1')!.lastHumanInputAt).toBeUndefined();
       recordHumanInput(state, 'ghost', frame('x'));
@@ -496,7 +497,7 @@ describe('terminal dispatch', () => {
   });
 
   describe('human typing hold', () => {
-    it('[FR-TERMINAL-1170] should queue a dispatch while a human typed in the worker moments ago', () => {
+    it('[FR-TERMINAL-1230] should queue a dispatch while a human typed in the worker moments ago', () => {
       addSession(state, 'w1', { activityState: 'idle', agentType: 'claude' });
       state.terminalSessionMeta.get('w1')!.lastHumanInputAt = Date.now();
 
@@ -506,7 +507,7 @@ describe('terminal dispatch', () => {
       expect(sent).toHaveLength(0);
     });
 
-    it('[FR-TERMINAL-1170] should deliver on its own once the typing hold expires', () => {
+    it('[FR-TERMINAL-1230] should deliver on its own once the typing hold expires', () => {
       addSession(state, 'w1', { activityState: 'idle', agentType: 'claude' });
       state.terminalSessionMeta.get('w1')!.lastHumanInputAt = Date.now();
       const entry = createDispatch(state, 'w1', 'task');
@@ -516,7 +517,7 @@ describe('terminal dispatch', () => {
       expect(getDispatch(entry.correlationId)?.status).toBe('written');
     });
 
-    it('[FR-TERMINAL-1170] should keep a busy worker queued after the hold expires', () => {
+    it('[FR-TERMINAL-1230] should keep a busy worker queued after the hold expires', () => {
       addSession(state, 'w1', { activityState: 'idle', agentType: 'claude' });
       state.terminalSessionMeta.get('w1')!.lastHumanInputAt = Date.now();
       const entry = createDispatch(state, 'w1', 'task');
@@ -527,7 +528,7 @@ describe('terminal dispatch', () => {
       expect(getDispatch(entry.correlationId)?.status).toBe('queued');
     });
 
-    it('[FR-TERMINAL-1170] should hold a settled notice for the origin while a human types there', () => {
+    it('[FR-TERMINAL-1230] should hold a settled notice for the origin while a human types there', () => {
       addSession(state, 'orig', { activityState: 'idle', agentType: 'claude' });
       state.terminalSessionMeta.get('orig')!.lastHumanInputAt = Date.now();
       addSession(state, 'w1', { activityState: 'idle', agentType: 'codex' });
@@ -677,7 +678,7 @@ describe('terminal dispatch', () => {
       expect(resolveWorkerReply(state, 'w1', 'x')?.correlationId).toBe(live.correlationId);
     });
 
-    it('[FR-TERMINAL-1170] should run the injected idle flush when the typing hold ends', () => {
+    it('[FR-TERMINAL-1230] should run the injected idle flush when the typing hold ends', () => {
       const flushed: string[] = [];
       state.deliveryRetryFlush = (_state, sessionId) => flushed.push(sessionId);
       addSession(state, 'w1', { activityState: 'idle', agentType: 'claude' });
@@ -791,7 +792,7 @@ describe('terminal dispatch', () => {
       expect(getDispatch(queued.correlationId)?.status).toBe('written');
     });
 
-    it('[FR-TERMINAL-1170] should let a shorter hold replace a pending longer retry', () => {
+    it('[FR-TERMINAL-1230] should let a shorter hold replace a pending longer retry', () => {
       state.deliveryRetryFlush = (_state, id) => flushDispatchInbox(state, id);
       addSession(state, 'w1', { activityState: 'idle', agentType: 'claude' });
       const meta = state.terminalSessionMeta.get('w1')!;
@@ -822,7 +823,7 @@ describe('terminal dispatch', () => {
       expect(getDispatch('written-old')).toBeDefined();
     });
 
-    it('[FR-TERMINAL-1170] should not count mouse reports or OSC replies as typing', () => {
+    it('[FR-TERMINAL-1230] should not count mouse reports or OSC replies as typing', () => {
       addSession(state, 'w1', { agentType: 'claude' });
       const frame = (d: string) => JSON.stringify({ t: 'i', sessionId: 'w1', d });
       for (const report of ['\x1b[<0;12;5M', '\x1b[<0;12;5m', '\x1b]11;rgb:0000/0000/0000\x07', '\x1b]10;rgb:ffff/ffff/ffff\x1b\\', '\x1b[I\x1b[O']) {
@@ -1164,6 +1165,21 @@ describe('terminal dispatch', () => {
         mcpOrigin: 'http://localhost:3000',
       });
     }
+
+    it('[FR-TERMINAL-1120] should give a spawned worker the task links of its caller', () => {
+      const ws = ctx.db.insert(workspaces).values({ name: 'w', slug: 'w' }).returning().get();
+      const project = ctx.db
+        .insert(projects)
+        .values({ workspaceId: ws.id, name: 'p', slug: 'p' })
+        .returning()
+        .get();
+      const task = ctx.db.insert(tasks).values({ title: 't', projectId: project.id }).returning().get();
+      linkTaskSessions([task.id], { sessionKey: 'caller-sess', kind: 'terminal', source: 'mcp' });
+
+      const result = spawnWorker();
+
+      expect(listSessionTaskIds(result!.sessionId)).toEqual([task.id]);
+    });
 
     it('[FR-TERMINAL-320] should substitute the session-id placeholder in agent-spawned commands', () => {
       const result = spawnWorker();

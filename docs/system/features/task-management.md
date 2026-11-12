@@ -79,6 +79,8 @@ When `task.create` is called with `type:'ai'` and `status:'todo'` and neither `t
 | FR-TASK-300 | WHEN the user clicks "Implement in terminal" in the bulk-action bar, the browser SHALL open one terminal whose prompt names every selected visible task that is not closed, with plan paths for tasks that need a plan, and SHALL move backlog and todo tasks to `in_progress`. |
 | FR-TASK-310 | IF a selected visible task that is not closed needs a plan and has none, THEN the browser SHALL disable "Implement in terminal" and SHALL name the tasks that block it. |
 | FR-TASK-320 | WHEN the user picks a status from the "Status" menu in the bulk-action bar, the browser SHALL set that status on every selected visible task and SHALL leave Select mode. |
+| FR-TASK-330 | WHEN a client asks for a task's sessions (`task.listSessions` / MCP `listTaskSessions`), the system SHALL return, newest first, every linked or spawned-for terminal from any worktree with its state (`live`, `parked` or `ended`), and every background execution of the task or linked to it. |
+| FR-TASK-340 | WHILE a task has sessions, the task dialog SHALL show a Sessions tab. WHEN the user picks Open on a live or parked terminal, the browser SHALL focus it, or switch to its project and worktree first; WHEN the user picks Resume on an ended Claude terminal, the browser SHALL open `claude --resume <conversation id>` in its original directory and container mode, bound to the task. Ended Codex terminals and executions SHALL show no action. |
 
 ## Sources
 

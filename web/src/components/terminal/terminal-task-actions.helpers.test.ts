@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { terminalTaskSlug, taskOpenDetail } from './terminal-task-actions.helpers';
+import { orderTaskIds, terminalTaskSlug, taskOpenDetail } from './terminal-task-actions.helpers';
 
 describe('terminal task bar helpers', () => {
   describe('terminalTaskSlug', () => {
@@ -31,5 +31,15 @@ describe('terminal task bar helpers', () => {
       expect('tab' in detail).toBe(false);
       expect(detail).toEqual({ taskId: 7, tabId: null });
     });
+  });
+});
+
+describe('orderTaskIds', () => {
+  it('[FR-TERMINAL-1150] should put the spawn task first and drop its duplicate', () => {
+    expect(orderTaskIds(2, [3, 2, 1])).toEqual([2, 3, 1]);
+  });
+
+  it('[FR-TERMINAL-1150] should keep the link order when the terminal has no spawn task', () => {
+    expect(orderTaskIds(undefined, [3, 1])).toEqual([3, 1]);
   });
 });

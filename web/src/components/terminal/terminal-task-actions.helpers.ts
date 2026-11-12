@@ -18,3 +18,8 @@ export function taskOpenDetail(args: {
   }
   return { taskId: args.taskId, tabId: args.tabId };
 }
+
+export function orderTaskIds(primaryTaskId: number | undefined, linkedTaskIds: number[]): number[] {
+  if (primaryTaskId == null) return linkedTaskIds;
+  return [primaryTaskId, ...linkedTaskIds.filter((id) => id !== primaryTaskId)];
+}

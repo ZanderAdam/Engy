@@ -24,6 +24,7 @@ The MCP surface and tRPC surface expose the same domain operations (workspace/ta
   - `project.reviewGuide`, `project.createReviewGuide` — the review page shows and copies the guide file. The agent receives the guide path in its prompt.
   - `terminal.resolveLink` — the `/t/<sessionId>` page and the workspace layout resolve a terminal link to its project, worktree and status. Agents get the same link as the `link` field of `terminal_whoami`, `terminal_list_workers`, `terminal_sessions` and `terminal_status`, built from their own MCP origin (`../terminal-link.ts`).
   - `terminal.uploadImage` — the mobile terminal's Upload image button sends a phone image to the session. An agent already reads files on the machine it runs on.
+  - `terminal.linkedTasks` — the terminal top bar lists the tasks of the session it shows. An agent reads the same links per task with `listTaskSessions`.
   - the `autoReviewOnRequest` workspace setting (`workspace.update`) — only the user turns on automatic agent reviews.
 - Shared helpers live outside both layers and **must be imported**, not copied:
   - `validateDependencies`, `attachBlockedBy` from `../tasks/validation`
@@ -32,6 +33,7 @@ The MCP surface and tRPC surface expose the same domain operations (workspace/ta
   - `broadcastTaskChange`, `broadcastQuestionChange`, `broadcastMemoryChange` from `../ws/broadcast`
   - `taskStatusSchema` from `@/lib/task-status`
   - `readTaskPlan` from `../plan/service`
+  - `linkTaskSessions`, `listTaskSessions` from `../tasks/sessions`
   - `addComment`, `replyToThread`, `setThreadResolved`, `textToBody` from `../services/comment`
 - Cycle detection is **not** reimplemented here — `validateDependencies`/`attachBlockedBy` are imported from `../tasks/validation` (see above) and shared with the tRPC layer.
 - File system / git on user repos still goes through the daemon via `../ws/server` dispatchers. MCP must not call `fs`/`simple-git` on user repos directly, just like tRPC.
@@ -93,7 +95,7 @@ When both query and filters are present, the filter is the anchor — every fron
 Tools are registered by domain in separate `register*Tools(mcp)` functions:
 
 - `registerWorkspaceTools` — `listWorkspaces`, `getWorkspaceDetails`, `listProjects`, `getProjectDetails`, `startProjectCompletion`, `archiveProject`, `setWorkspaceEarsBdd` (toggles EARS-BDD mode; updates DB + workspace.yaml)
-- `registerTaskTools` — `createTask`, `updateTask` (with `memories[]` passthrough to fleeting memories), `listTasks`, `getTask`, `deleteTask`, `bulkUpdateTasks`, `bulkDeleteTasks`
+- `registerTaskTools` — `createTask`, `updateTask` (with `memories[]` passthrough to fleeting memories; a call from `/mcp/<terminalSessionId>` links the task to that session via `../tasks/sessions`), `listTasks`, `getTask`, `listTaskSessions`, `deleteTask`, `bulkUpdateTasks`, `bulkDeleteTasks`
 - `registerTaskGroupTools` — `createTaskGroup`, `listTaskGroups`, `getTaskGroup`, `updateTaskGroup`, `deleteTaskGroup`
 - `registerMemoryTools` — `createFleetingMemory`, `dismissFleetingMemory`, `deleteFleetingMemory`, `listMemories`, `createPermanentMemory`, `updatePermanentMemory`, `promoteMemory`, `writeSourceSnapshot`, `listReviewClusters`, `getMemoryGraph`
 - `registerQuestionTools` — `askQuestion`

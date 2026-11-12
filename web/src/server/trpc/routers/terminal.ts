@@ -30,7 +30,12 @@ import { getWorkspaceDir } from '../../engy-dir/init';
 import { readParkBrief } from '../../hooks/brief';
 import { deriveMcpOrigin } from '../../terminal-link';
 import { isAgentActive, isAgentTypeId } from '@/lib/agent-types';
-import { listSessionHistory, liveHistoryKeys } from '../../ws/terminal-session-history';
+import {
+  listSessionHistory,
+  liveHistoryKeys,
+  terminalSessionKey,
+} from '../../ws/terminal-session-history';
+import { listSessionTaskIds } from '../../tasks/sessions';
 import { resolveTerminalLinkTarget } from '../../ws/terminal-link-target';
 import { broadcastTerminalWorkersChange } from '../../ws/broadcast';
 
@@ -144,6 +149,12 @@ export const terminalRouter = router({
       const liveKeys = liveHistoryKeys(getAppState());
       return listSessionHistory(input.workspaceSlug, liveKeys, input.projectSlug);
     }),
+
+  // Keyed by the conversation, so a resumed terminal still shows the tasks of its earlier runs.
+  linkedTasks: publicProcedure.input(z.object({ sessionId: z.string() })).query(({ input }) => {
+    const meta = getAppState().terminalSessionMeta.get(input.sessionId);
+    return listSessionTaskIds(terminalSessionKey(input.sessionId, meta));
+  }),
 
   // Closing a dormant tab cannot go through the usual `{ t: 'kill' }` on the
   // terminal socket — a dormant session has neither a PTY nor a socket — so the

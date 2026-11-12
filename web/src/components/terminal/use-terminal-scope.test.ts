@@ -3,7 +3,7 @@ import { deriveScope, deriveShellScope, isPrsTabPath } from './use-terminal-scop
 import { shellEscape } from '@/lib/shell';
 
 describe('deriveShellScope', () => {
-  it('[FR-TERMINAL-1180] should drop the agent type so a shell cannot pass as an agent', () => {
+  it('[FR-TERMINAL-1240] should drop the agent type so a shell cannot pass as an agent', () => {
     const agentScope = deriveScope('ws', '/ws', ['/repo'], 1, undefined, undefined, undefined, false);
 
     const shellScope = deriveShellScope(agentScope);

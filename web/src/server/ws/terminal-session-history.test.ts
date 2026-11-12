@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { setupTestDb, type TestContext } from '../trpc/test-helpers';
-import { terminalSessionHistory } from '../db/schema';
+import { projects, tasks, terminalSessionHistory, workspaces } from '../db/schema';
+import { linkTaskSessions } from '../tasks/sessions';
 import {
   recordSessionStart,
   updateSessionSummary,
@@ -103,6 +104,31 @@ describe('terminal session history', () => {
         .filter((r) => r.workspaceSlug === 'ws-prune');
 
       expect(rows).toHaveLength(50);
+    });
+
+    it('[FR-TERMINAL-1140] should keep task-linked sessions out of the prune', () => {
+      const ws = ctx.db.insert(workspaces).values({ name: 'w', slug: 'w' }).returning().get();
+      const project = ctx.db
+        .insert(projects)
+        .values({ workspaceId: ws.id, name: 'p', slug: 'p' })
+        .returning()
+        .get();
+      const task = ctx.db.insert(tasks).values({ title: 't', projectId: project.id }).returning().get();
+      recordSessionStart('linked-oldest', makeAgentMeta({ workspaceSlug: 'ws-prune' }));
+      linkTaskSessions([task.id], { sessionKey: 'linked-oldest', kind: 'terminal', source: 'spawn' });
+      for (let i = 1; i <= 55; i++) {
+        recordSessionStart(`sid-prune-${i}`, makeAgentMeta({ workspaceSlug: 'ws-prune' }));
+      }
+
+      const keys = ctx.db
+        .select()
+        .from(terminalSessionHistory)
+        .all()
+        .filter((r) => r.workspaceSlug === 'ws-prune')
+        .map((r) => r.sessionId);
+
+      expect(keys).toContain('linked-oldest');
+      expect(keys).toHaveLength(51);
     });
 
     it('[FR-TERMINAL-340] should prune null-slug rows independently from named buckets', () => {

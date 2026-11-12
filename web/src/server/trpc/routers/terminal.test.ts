@@ -39,7 +39,7 @@ describe('terminal router', () => {
   });
 
   describe('resolveLink', () => {
-    it('[FR-TERMINAL-1150] should resolve a live session to its workspace and project', async () => {
+    it('[FR-TERMINAL-1210] should resolve a live session to its workspace and project', async () => {
       state.terminalSessionMeta.set('s1', {
         scopeType: 'project',
         scopeLabel: 'project: alpha',
@@ -56,7 +56,7 @@ describe('terminal router', () => {
       });
     });
 
-    it('[FR-TERMINAL-1160] should return null for an unknown session', async () => {
+    it('[FR-TERMINAL-1220] should return null for an unknown session', async () => {
       expect(await caller.terminal.resolveLink({ sessionId: 'nope' })).toBeNull();
     });
   });
@@ -111,7 +111,7 @@ describe('terminal router', () => {
   });
 
   describe('setOrchestrator', () => {
-    it('[FR-TERMINAL-1180] should give the role to one terminal and take it from the previous holder', async () => {
+    it('[FR-TERMINAL-1240] should give the role to one terminal and take it from the previous holder', async () => {
       addSession(state, 'a');
       addSession(state, 'b');
 
@@ -124,21 +124,21 @@ describe('terminal router', () => {
       expect(flags.filter((w) => w.orchestrator).map((w) => w.sessionId)).toEqual(['b']);
     });
 
-    it('[FR-TERMINAL-1180] should persist the role with the session', async () => {
+    it('[FR-TERMINAL-1240] should persist the role with the session', async () => {
       addSession(state, 'a');
       await caller.terminal.setOrchestrator({ sessionId: 'a', enabled: true });
       const row = ctx.db.select().from(terminalSessions).get();
       expect((row?.meta as { orchestrator?: boolean }).orchestrator).toBe(true);
     });
 
-    it('[FR-TERMINAL-1180] should clear the role', async () => {
+    it('[FR-TERMINAL-1240] should clear the role', async () => {
       addSession(state, 'a');
       await caller.terminal.setOrchestrator({ sessionId: 'a', enabled: true });
       await caller.terminal.setOrchestrator({ sessionId: 'a', enabled: false });
       expect(state.terminalSessionMeta.get('a')!.orchestrator).toBeUndefined();
     });
 
-    it('[FR-TERMINAL-1180] should refuse unknown, dormant and plain-shell sessions', async () => {
+    it('[FR-TERMINAL-1240] should refuse unknown, dormant and plain-shell sessions', async () => {
       await expect(caller.terminal.setOrchestrator({ sessionId: 'ghost', enabled: true })).rejects.toThrow(
         'not found',
       );
@@ -156,7 +156,7 @@ describe('terminal router', () => {
   });
 
   describe('setDispatchOptOut', () => {
-    it('[FR-TERMINAL-1190] should flag and unflag a terminal, visible in listWorkers', async () => {
+    it('[FR-TERMINAL-1250] should flag and unflag a terminal, visible in listWorkers', async () => {
       addSession(state, 'a');
       await caller.terminal.setDispatchOptOut({ sessionId: 'a', optOut: true });
       expect((await caller.terminal.listWorkers())[0].dispatchOptOut).toBe(true);
@@ -174,7 +174,7 @@ describe('terminal router', () => {
       ctx.db.insert(workspaces).values({ name: 'WS', slug: 'ws', repos: ['/repo'] }).run();
     });
 
-    it('[FR-TERMINAL-1200] should spawn a workspace-scope agent terminal and mark it orchestrator', async () => {
+    it('[FR-TERMINAL-1260] should spawn a workspace-scope agent terminal and mark it orchestrator', async () => {
       const sent: string[] = [];
       state.terminalDaemon = fakeDaemon(sent);
 
@@ -196,7 +196,7 @@ describe('terminal router', () => {
       expect(state.dispatchWorkers.has(sessionId)).toBe(false);
     });
 
-    it('[FR-TERMINAL-1200] should spawn in the project of the current dock', async () => {
+    it('[FR-TERMINAL-1260] should spawn in the project of the current dock', async () => {
       const sent: string[] = [];
       state.terminalDaemon = fakeDaemon(sent);
       const workspace = ctx.db.select().from(workspaces).get()!;
@@ -219,14 +219,14 @@ describe('terminal router', () => {
       });
     });
 
-    it('[FR-TERMINAL-1200] should refuse an unknown project', async () => {
+    it('[FR-TERMINAL-1260] should refuse an unknown project', async () => {
       state.terminalDaemon = fakeDaemon([]);
       await expect(
         caller.terminal.startOrchestrator({ workspaceSlug: 'ws', projectSlug: 'nope' }),
       ).rejects.toThrow('Project not found');
     });
 
-    it('[FR-TERMINAL-1180] should keep the orchestrator of another project', async () => {
+    it('[FR-TERMINAL-1240] should keep the orchestrator of another project', async () => {
       addSession(state, 'alpha');
       addSession(state, 'beta');
       state.terminalSessionMeta.get('alpha')!.projectSlug = 'alpha';
@@ -239,7 +239,7 @@ describe('terminal router', () => {
       expect(state.terminalSessionMeta.get('beta')!.orchestrator).toBe(true);
     });
 
-    it('[FR-TERMINAL-1200] should move the role from a previous orchestrator', async () => {
+    it('[FR-TERMINAL-1260] should move the role from a previous orchestrator', async () => {
       state.terminalDaemon = fakeDaemon([]);
       addSession(state, 'old');
       state.terminalSessionMeta.get('old')!.workspaceSlug = 'ws';
@@ -251,7 +251,7 @@ describe('terminal router', () => {
       expect(state.terminalSessionMeta.get(sessionId)!.orchestrator).toBe(true);
     });
 
-    it('[FR-TERMINAL-1200] should refuse an unknown workspace, a deactivated agent, and a missing daemon', async () => {
+    it('[FR-TERMINAL-1260] should refuse an unknown workspace, a deactivated agent, and a missing daemon', async () => {
       await expect(caller.terminal.startOrchestrator({ workspaceSlug: 'nope' })).rejects.toThrow(
         'Workspace not found',
       );

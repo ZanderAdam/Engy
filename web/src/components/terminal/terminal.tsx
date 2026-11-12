@@ -64,6 +64,7 @@ function buildWsUrl(tab: TerminalTab, restore: boolean): string {
   if (scope.worktreeBranch) params.set('worktreeBranch', scope.worktreeBranch);
   if (scope.containerMode) params.set('containerMode', scope.containerMode);
   if (scope.taskId != null) params.set('taskId', String(scope.taskId));
+  if (scope.linkTaskIds?.length) params.set('taskIds', scope.linkTaskIds.join(','));
   if (scope.resumedFrom) params.set('resumedFrom', scope.resumedFrom);
   if (restore) params.set('restore', '1');
   return `${base}/ws/terminal?${params.toString()}`;

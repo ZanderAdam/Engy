@@ -21,6 +21,8 @@ import {
 import { validateDependencies, attachBlockedBy } from '../tasks/validation';
 import { nextNumInMilestone } from '../tasks/task-group-numbering';
 import { bulkUpdateTasks, bulkDeleteTasks } from '../tasks/bulk';
+import { linkTaskSessions, listTaskSessions } from '../tasks/sessions';
+import { terminalSessionKey } from '../ws/terminal-session-history';
 import { getWorkspaceDir, resolveProjectDir, writeWorkspaceYaml } from '../engy-dir/init';
 import { readTaskPlan } from '../plan/service';
 import { broadcastTaskChange, broadcastQuestionChange, broadcastMemoryChange } from '../ws/broadcast';
@@ -406,7 +408,7 @@ export function getMcpServer(callerTerminalSessionId?: string): McpServer {
   );
 
   registerWorkspaceTools(mcp);
-  registerTaskTools(mcp);
+  registerTaskTools(mcp, callerTerminalSessionId);
   registerTaskGroupTools(mcp);
   registerMemoryTools(mcp);
   registerQuestionTools(mcp);
@@ -836,7 +838,7 @@ function registerWorkspaceTools(mcp: McpServer): void {
   );
 }
 
-function registerTaskTools(mcp: McpServer): void {
+function registerTaskTools(mcp: McpServer, callerTerminalSessionId?: string): void {
   mcp.tool(
     'createTask',
     'Create a new task',
@@ -949,6 +951,14 @@ function registerTaskTools(mcp: McpServer): void {
       });
       if (!result) return mcpError('Task not found');
 
+      if (callerTerminalSessionId) {
+        const callerMeta = getAppState().terminalSessionMeta.get(callerTerminalSessionId);
+        linkTaskSessions([id], {
+          sessionKey: terminalSessionKey(callerTerminalSessionId, callerMeta),
+          kind: 'terminal',
+          source: 'mcp',
+        });
+      }
       broadcastTaskChange('updated', id, result.projectId ?? undefined);
       return mcpResult({ success: true });
     },
@@ -1011,6 +1021,13 @@ function registerTaskTools(mcp: McpServer): void {
       delete details.sessionId;
       return mcpResult(details);
     },
+  );
+
+  mcp.tool(
+    'listTaskSessions',
+    'List every session linked to a task, newest first: live, parked and ended agent terminals, and background executions. A session links to a task when it was opened for the task or called updateTask on it.',
+    taskIdInput,
+    async ({ id }) => mcpResult(listTaskSessions(getAppState(), id)),
   );
 
   mcp.tool(

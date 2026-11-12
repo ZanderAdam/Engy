@@ -26,7 +26,7 @@ describe('resolveTerminalLinkTarget', () => {
     return () => ctx.cleanup();
   });
 
-  it('[FR-TERMINAL-1150] should resolve a live session to its project and worktree', () => {
+  it('[FR-TERMINAL-1210] should resolve a live session to its project and worktree', () => {
     ctx.state.terminalSessionMeta.set('live-1', makeMeta({ worktreeBranch: 'feat-x' }));
 
     expect(resolveTerminalLinkTarget(ctx.state, 'live-1')).toEqual({
@@ -37,7 +37,7 @@ describe('resolveTerminalLinkTarget', () => {
     });
   });
 
-  it('[FR-TERMINAL-1150] should take the worktree from groupKey when the branch changed later', () => {
+  it('[FR-TERMINAL-1210] should take the worktree from groupKey when the branch changed later', () => {
     ctx.state.terminalSessionMeta.set(
       'live-3',
       makeMeta({ groupKey: 'project:ws-1:alpha:wt:feat-x', worktreeBranch: 'feat-moved' }),
@@ -48,7 +48,7 @@ describe('resolveTerminalLinkTarget', () => {
     });
   });
 
-  it('[FR-TERMINAL-1150] should leave the worktree out when groupKey has none', () => {
+  it('[FR-TERMINAL-1210] should leave the worktree out when groupKey has none', () => {
     ctx.state.terminalSessionMeta.set(
       'live-4',
       makeMeta({ groupKey: 'project:ws-1:alpha', worktreeBranch: 'feat-moved' }),
@@ -61,7 +61,7 @@ describe('resolveTerminalLinkTarget', () => {
     });
   });
 
-  it('[FR-TERMINAL-1150] should mark a shell session so the shell dock opens', () => {
+  it('[FR-TERMINAL-1210] should mark a shell session so the shell dock opens', () => {
     ctx.state.terminalSessionMeta.set(
       'shell-1',
       makeMeta({ groupKey: 'shell:project:ws-1:alpha:wt:feat-x' }),
@@ -76,7 +76,7 @@ describe('resolveTerminalLinkTarget', () => {
     });
   });
 
-  it('[FR-TERMINAL-1150] should resolve a workspace session without a project', () => {
+  it('[FR-TERMINAL-1210] should resolve a workspace session without a project', () => {
     ctx.state.terminalSessionMeta.set(
       'live-2',
       makeMeta({ scopeType: 'workspace', projectSlug: undefined }),
@@ -88,13 +88,13 @@ describe('resolveTerminalLinkTarget', () => {
     });
   });
 
-  it('[FR-TERMINAL-1150] should report a dormant session as dormant', () => {
+  it('[FR-TERMINAL-1210] should report a dormant session as dormant', () => {
     ctx.state.terminalSessionMeta.set('dorm-1', makeMeta({ dormant: true }));
 
     expect(resolveTerminalLinkTarget(ctx.state, 'dorm-1')).toMatchObject({ status: 'dormant' });
   });
 
-  it('[FR-TERMINAL-1160] should resolve a closed session from history', () => {
+  it('[FR-TERMINAL-1220] should resolve a closed session from history', () => {
     recordSessionStart('gone-1', makeMeta({ worktreeBranch: 'feat-y' }));
     markSessionClosed('gone-1');
 
@@ -106,18 +106,18 @@ describe('resolveTerminalLinkTarget', () => {
     });
   });
 
-  it('[FR-TERMINAL-1160] should return null for a session that never existed', () => {
+  it('[FR-TERMINAL-1220] should return null for a session that never existed', () => {
     expect(resolveTerminalLinkTarget(ctx.state, 'nope')).toBeNull();
   });
 
-  it('[FR-TERMINAL-1160] should return null for a closed resumed session id with no history row', () => {
+  it('[FR-TERMINAL-1220] should return null for a closed resumed session id with no history row', () => {
     recordSessionStart('terminal-2', makeMeta({ resumedFrom: 'conversation-1' }));
     markSessionClosed('conversation-1');
 
     expect(resolveTerminalLinkTarget(ctx.state, 'terminal-2')).toBeNull();
   });
 
-  it('[FR-TERMINAL-1160] should return null for a live session with no workspace', () => {
+  it('[FR-TERMINAL-1220] should return null for a live session with no workspace', () => {
     ctx.state.terminalSessionMeta.set('orphan', makeMeta({ workspaceSlug: undefined }));
 
     expect(resolveTerminalLinkTarget(ctx.state, 'orphan')).toBeNull();

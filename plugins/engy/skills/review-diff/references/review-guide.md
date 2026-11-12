@@ -6,8 +6,8 @@ What to emphasise in the guided review. Its shape (groups, system context, risk)
 skill and applies with any guide.
 
 - `overview`: what the change does and why, for a reader who has not seen the work.
-- Group explanations: lead with the change in behaviour, then the consequences a caller sees.
-  Name the risk drivers a reviewer can verify: shared code paths, persisted data, public contracts.
+- Group explanations: name the risk drivers a reviewer can verify: shared code paths, persisted
+  data, public contracts.
 - `summary` notes, in this order:
   1. Architectural decisions in the diff and their rationale.
   2. Impact and breaking-change assessment.
