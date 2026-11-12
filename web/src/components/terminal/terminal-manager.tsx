@@ -23,8 +23,7 @@ import { orderTabsByPanelIds, reorderIndex } from "./tab-order";
 import { registerPrimaryInjectTarget, isPrimaryReadyFor } from "./terminal-inject-priority";
 
 /** Pure decision for the `terminal:inject` race: which session id (if any)
- * this manager should write `context` to. Exported for unit testing —
- * TerminalManager itself isn't feasible to render in a test.
+ * this manager should write `context` to.
  *
  * A BOTTOM (fallback) manager defers to a ready primary for an unaddressed
  * event; without this, mount order alone (BOTTOM mounts first) would decide
@@ -788,6 +787,9 @@ export function TerminalManager({ onCollapse, onReveal, defaultScope, extraDropd
           return res.json();
         })
         .then((data: { sessions: SessionListItem[] }) => {
+          // StrictMode mounts dockview twice. The disposed dock's fetch resolves
+          // first, and its flush would use up the pending focus.
+          if (dockviewApiRef.current !== api) return;
           seedActivityStore(data.sessions);
           const fallbackGroupKey = defaultScopeRef.current!.groupKey;
           const activeSessions = new Set(data.sessions.map((s) => s.sessionId));
