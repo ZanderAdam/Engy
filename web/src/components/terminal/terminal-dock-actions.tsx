@@ -27,7 +27,6 @@ import { TerminalSessionLabel } from './terminal-session-label';
 import { TerminalNewMenuContent } from './terminal-new-menu';
 import { TerminalWorkerButton } from './terminal-worker-button';
 import { TerminalOrchestratorButton } from './terminal-orchestrator-button';
-import { TerminalDispatchBlockButton } from './terminal-dispatch-block-button';
 import { groupTabsByWorktree, type TerminalWorktreeGroup } from './worktree-grouping';
 import { useCommandCenterMode } from './command-center/use-command-center-mode';
 import { groupTabsByProject } from './command-center/grouping';
@@ -195,7 +194,6 @@ export function TerminalDockActions({ activePanel, panels }: IDockviewHeaderActi
         dockSessionIds={panels.map((panel) => panel.id)}
         scope={(activePanel?.params as TerminalPanelParams | undefined)?.tab.scope ?? defaultScope}
       />
-      <TerminalDispatchBlockButton activeSessionId={activePanel?.id} />
       <TerminalWorkerButton
         activeSessionId={activePanel?.id}
         defaultDescription={

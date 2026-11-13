@@ -57,8 +57,6 @@ const HUMAN_TYPING_HOLD_MS = 5_000;
 const WRITTEN_HOLD_MS = 60_000;
 const PASTE_HOLD_MS = 2_000;
 const LATE_REPLY_WINDOW_MS = 10 * 60_000;
-const OPT_OUT_REASON =
-  'The user turned dispatch off for that terminal — it accepts no dispatched prompts.';
 const OUTSIDE_PROJECT_REASON =
   'That terminal is outside your project — an orchestrator reaches only terminals in the project it runs in.';
 const BRACKETED_PASTE_START = '\x1b[200~';
@@ -125,7 +123,6 @@ interface WorkerInfo {
   activityState: string;
   connected: boolean;
   orchestrator: boolean;
-  dispatchOptOut: boolean;
   workspaceSlug?: string;
   projectSlug?: string;
   worktreeBranch?: string;
@@ -146,7 +143,6 @@ export function listWorkers(state: AppState): WorkerInfo[] {
       activityState: meta.activityState ?? 'idle',
       connected: connection !== undefined,
       orchestrator: meta.orchestrator === true,
-      dispatchOptOut: meta.dispatchOptOut === true,
       workspaceSlug: meta.workspaceSlug,
       projectSlug: meta.projectSlug,
       worktreeBranch: meta.worktreeBranch,
@@ -182,9 +178,6 @@ export function dispatchRefusal(
   if (!workerMeta || workerMeta.dormant) return 'Worker terminal is no longer alive.';
   if (!workerMeta.agentType) {
     return 'That terminal is a plain shell — only agent terminals accept dispatches.';
-  }
-  if (workerMeta.dispatchOptOut) {
-    return OPT_OUT_REASON;
   }
   if (callerSessionId === workerSessionId) return 'A terminal cannot dispatch to itself.';
   const orchestrator = orchestratorMeta(state, callerSessionId);
@@ -380,9 +373,6 @@ function deliverDispatch(state: AppState, entry: DispatchEntry): void {
  * that just went idle. Returns true when something was pasted.
  */
 export function flushDispatchInbox(state: AppState, workerSessionId: string): boolean {
-  if (state.terminalSessionMeta.get(workerSessionId)?.dispatchOptOut) {
-    failQueuedDispatches(state, workerSessionId, OPT_OUT_REASON);
-  }
   if (!isDeliverable(state, workerSessionId) || writtenHoldRemainingMs(workerSessionId) > 0) {
     scheduleHoldRetry(state, workerSessionId);
     return false;
@@ -951,13 +941,6 @@ export function setOrchestrator(state: AppState, sessionId: string, enabled: boo
   updateDispatchFlags(state, sessionId, (meta) => {
     meta.orchestrator = enabled || undefined;
   });
-}
-
-export function setDispatchOptOut(state: AppState, sessionId: string, optOut: boolean): void {
-  updateDispatchFlags(state, sessionId, (meta) => {
-    meta.dispatchOptOut = optOut || undefined;
-  });
-  if (optOut) failQueuedDispatches(state, sessionId, OPT_OUT_REASON);
 }
 
 export function isTrackedWorker(state: AppState, sessionId: string): boolean {

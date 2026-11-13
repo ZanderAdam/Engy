@@ -24,7 +24,6 @@ import {
   recordHumanInput,
   dropSessionDispatchState,
   failQueuedDispatches,
-  setDispatchOptOut,
   setOrchestrator,
   failWorkerDispatches,
   settleDispatch,
@@ -440,13 +439,6 @@ describe('terminal dispatch', () => {
       expect(dispatchRefusal(state, 'caller', 'missing')).toContain('no longer alive');
     });
 
-    it('[FR-MCP-110] should refuse a terminal the user opted out of dispatch, connected or not', () => {
-      connectWorker(state, 'worker', 'w');
-      state.terminalSessionMeta.get('worker')!.dispatchOptOut = true;
-      state.terminalSessionMeta.get('caller')!.orchestrator = true;
-      expect(dispatchRefusal(state, 'caller', 'worker')).toContain('turned dispatch off');
-    });
-
     it('[FR-MCP-110] should fail a dispatch queued before the caller became an orchestrator elsewhere', () => {
       const caller = state.terminalSessionMeta.get('caller')!;
       caller.projectSlug = 'alpha';
@@ -635,30 +627,6 @@ describe('terminal dispatch', () => {
   });
 
   describe('review fixes', () => {
-    it('[FR-TERMINAL-280] should fail the queued dispatches of a terminal the user opts out', () => {
-      addSession(state, 'w1', { activityState: 'active', agentType: 'claude' });
-      const queued = createDispatch(state, 'w1', 'task');
-
-      setDispatchOptOut(state, 'w1', true);
-
-      expect(getDispatch(queued.correlationId)).toMatchObject({ status: 'failed' });
-      expect(getDispatch(queued.correlationId)?.error).toContain('turned dispatch off');
-    });
-
-    it('[FR-TERMINAL-280] should recheck the opt-out at flush and not deliver', () => {
-      addSession(state, 'w1', { activityState: 'active', agentType: 'claude' });
-      const queued = createDispatch(state, 'w1', 'task');
-      const meta = state.terminalSessionMeta.get('w1')!;
-      meta.dispatchOptOut = true;
-      meta.activityState = 'idle';
-      sent.length = 0;
-
-      expect(flushDispatchInbox(state, 'w1')).toBe(false);
-
-      expect(getDispatch(queued.correlationId)?.status).toBe('failed');
-      expect(sent).toHaveLength(0);
-    });
-
     it('[FR-TERMINAL-280] should leave written and delivered rows alone when failing queued ones', () => {
       addSession(state, 'w1', { activityState: 'idle', agentType: 'claude' });
       const written = createDispatch(state, 'w1', 'in flight');

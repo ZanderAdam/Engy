@@ -21,7 +21,6 @@ import {
   failQueuedDispatches,
   listWorkers,
   parkTerminalSession,
-  setDispatchOptOut,
   setOrchestrator,
   spawnAgentTerminal,
 } from '../../terminal-dispatch';
@@ -74,14 +73,6 @@ export const terminalRouter = router({
     .mutation(({ input }) => {
       requireLiveAgentSession(input.sessionId);
       setOrchestrator(getAppState(), input.sessionId, input.enabled);
-      return { ok: true };
-    }),
-
-  setDispatchOptOut: publicProcedure
-    .input(z.object({ sessionId: z.string(), optOut: z.boolean() }))
-    .mutation(({ input }) => {
-      requireLiveAgentSession(input.sessionId);
-      setDispatchOptOut(getAppState(), input.sessionId, input.optOut);
       return { ok: true };
     }),
 

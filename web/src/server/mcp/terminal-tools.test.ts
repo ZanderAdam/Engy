@@ -991,17 +991,6 @@ describe('MCP terminal tools', () => {
       expect(data.status).toBe('written');
     });
 
-    it('[FR-MCP-110] should refuse a terminal the user opted out, even for the orchestrator', async () => {
-      addAgent('target', { dispatchOptOut: true });
-      addAgent('boss', { orchestrator: true });
-      const { isError, data } = await callTool(makeMcp('boss'), 'terminal_dispatch')({
-        workerSessionId: 'target',
-        message: 'hi',
-      });
-      expect(isError).toBe(true);
-      expect(String(data.error)).toContain('turned dispatch off');
-    });
-
     it('[FR-MCP-130] should list only its own project for the orchestrator', async () => {
       addAgent('boss', { orchestrator: true, workspaceSlug: 'ws', projectSlug: 'alpha' });
       addAgent('near', { workspaceSlug: 'ws', projectSlug: 'alpha' });

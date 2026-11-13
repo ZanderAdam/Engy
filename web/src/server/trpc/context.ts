@@ -50,8 +50,6 @@ export interface TerminalSessionMeta {
   // Set over tRPC only (terminal.startOrchestrator from the dock, or
   // terminal.setOrchestrator); no MCP tool grants it.
   orchestrator?: boolean;
-  // Human-set: refuse every dispatch to this terminal.
-  dispatchOptOut?: boolean;
   // Epoch ms of the last browser keystroke relayed here. Persisted with the
   // session meta, but only compared against a 5 second window.
   lastHumanInputAt?: number;

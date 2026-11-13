@@ -62,7 +62,7 @@ describe('terminal router', () => {
   });
 
   describe('connectWorker', () => {
-    it('should connect a live session as a dispatch worker', async () => {
+    it('[FR-TERMINAL-1250] should connect a live session as a dispatch worker, visible in listWorkers', async () => {
       addSession(state, 'sess-1');
       await caller.terminal.connectWorker({ sessionId: 'sess-1', description: 'claude on auth' });
 
@@ -73,6 +73,7 @@ describe('terminal router', () => {
         description: 'claude on auth',
         agentType: 'claude',
         connected: true,
+        orchestrator: false,
       });
     });
 
@@ -152,16 +153,6 @@ describe('terminal router', () => {
       await expect(caller.terminal.setOrchestrator({ sessionId: 'shell', enabled: true })).rejects.toThrow(
         'Only agent terminals',
       );
-    });
-  });
-
-  describe('setDispatchOptOut', () => {
-    it('[FR-TERMINAL-1250] should flag and unflag a terminal, visible in listWorkers', async () => {
-      addSession(state, 'a');
-      await caller.terminal.setDispatchOptOut({ sessionId: 'a', optOut: true });
-      expect((await caller.terminal.listWorkers())[0].dispatchOptOut).toBe(true);
-      await caller.terminal.setDispatchOptOut({ sessionId: 'a', optOut: false });
-      expect((await caller.terminal.listWorkers())[0].dispatchOptOut).toBe(false);
     });
   });
 
