@@ -25,6 +25,7 @@ import {
   dropSessionDispatchState,
   failQueuedDispatches,
   setDispatchOptOut,
+  setOrchestrator,
   failWorkerDispatches,
   settleDispatch,
   flushDispatchInbox,
@@ -404,6 +405,18 @@ describe('terminal dispatch', () => {
     it('[FR-MCP-110] should refuse an unconnected agent terminal for an ordinary caller', () => {
       expect(dispatchRefusal(state, 'caller', 'worker')).toContain('not connected');
       expect(dispatchRefusal(state, undefined, 'worker')).toContain('not connected');
+    });
+
+    it('[FR-MCP-110] should tell a caller whose orchestrator role was cleared that it lost the role', () => {
+      setOrchestrator(state, 'caller', true);
+      expect(dispatchRefusal(state, 'caller', 'worker')).toBeNull();
+
+      setOrchestrator(state, 'caller', false);
+
+      const refusal = dispatchRefusal(state, 'caller', 'worker');
+      expect(refusal).toContain('not connected');
+      expect(refusal).toContain('does not hold the orchestrator role');
+      expect(dispatchRefusal(state, undefined, 'worker')).not.toContain('orchestrator role');
     });
 
     it('[FR-MCP-110] should accept a connected worker for any caller', () => {

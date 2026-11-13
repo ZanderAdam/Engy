@@ -101,6 +101,23 @@ describe('terminal relay', () => {
       expect(result.find((r) => r.sessionId === 's2')!.needsAttention).toBe(false);
     });
 
+    it('[FR-TERMINAL-1290] surfaces the orchestrator role, defaulting to false when unset', () => {
+      const state = makeState([
+        ['s1', meta({ orchestrator: true })],
+        ['s2', meta()],
+      ]);
+
+      const result = listTerminalSessions(state, {
+        all: true,
+        groupKey: null,
+        scopeType: '',
+        scopeLabel: '',
+      });
+
+      expect(result.find((r) => r.sessionId === 's1')!.orchestrator).toBe(true);
+      expect(result.find((r) => r.sessionId === 's2')!.orchestrator).toBe(false);
+    });
+
     it('[FR-TERMINAL-520] reports the dormant marker so the client can offer a restore', () => {
       const state = makeState([
         ['s1', meta({ dormant: true })],

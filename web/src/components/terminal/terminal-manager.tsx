@@ -720,14 +720,29 @@ export function TerminalManager({ onCollapse, onReveal, defaultScope, extraDropd
           const current = tabsRef.current.get(s.sessionId);
           if (!current) continue;
           const activityState = s.activityState ?? 'idle';
-          if (current.activityState === activityState && current.needsAttention === s.needsAttention) {
+          if (
+            current.activityState === activityState &&
+            current.needsAttention === s.needsAttention &&
+            (current.orchestrator === true) === (s.orchestrator === true)
+          ) {
             continue;
           }
-          commitTab(s.sessionId, { ...current, activityState, needsAttention: s.needsAttention });
+          commitTab(s.sessionId, {
+            ...current,
+            activityState,
+            needsAttention: s.needsAttention,
+            orchestrator: s.orchestrator,
+          });
         }
       })
       .catch((err: unknown) => console.error('Failed to resync terminal activity:', err));
   }, [buildSessionsUrl, commitTab]));
+
+  useOnServerEvent('TERMINAL_WORKERS_CHANGE', useCallback((payload) => {
+    const existing = tabsRef.current.get(payload.sessionId);
+    if (!existing || (existing.orchestrator === true) === payload.orchestrator) return;
+    commitTab(payload.sessionId, { ...existing, orchestrator: payload.orchestrator });
+  }, [commitTab]));
 
   useOnServerEvent('TERMINAL_BRANCH_CHANGE', useCallback((payload) => {
     const existing = tabsRef.current.get(payload.sessionId);

@@ -14,6 +14,7 @@ import {
   terminalImageError,
 } from '@/lib/terminal-image';
 import {
+  broadcastDispatchFlags,
   connectWorker,
   destroyTerminalSession,
   disconnectWorker,
@@ -37,7 +38,6 @@ import {
 } from '../../ws/terminal-session-history';
 import { listSessionTaskIds } from '../../tasks/sessions';
 import { resolveTerminalLinkTarget } from '../../ws/terminal-link-target';
-import { broadcastTerminalWorkersChange } from '../../ws/broadcast';
 
 const PASTE_DIR = '.engy/paste';
 const MAX_BASE64_LENGTH = Math.ceil(TERMINAL_IMAGE_MAX_BYTES / 3) * 4;
@@ -270,7 +270,7 @@ export const terminalRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Terminal session not found' });
       }
       connectWorker(state, input.sessionId, input.description);
-      broadcastTerminalWorkersChange(input.sessionId, true);
+      broadcastDispatchFlags(state, input.sessionId);
       return { ok: true };
     }),
 
@@ -280,7 +280,7 @@ export const terminalRouter = router({
       const state = getAppState();
       disconnectWorker(state, input.sessionId);
       failQueuedDispatches(state, input.sessionId, 'The user disconnected that worker.');
-      broadcastTerminalWorkersChange(input.sessionId, false);
+      broadcastDispatchFlags(state, input.sessionId);
       return { ok: true };
     }),
 });

@@ -19,6 +19,7 @@ interface TerminalSessionListItem {
   railGroup?: TerminalRailGroup;
   lastTitle?: string;
   needsAttention: boolean;
+  orchestrator: boolean;
   activityState: string;
   status: 'active' | 'suspended';
   browserCount: number;
@@ -91,6 +92,7 @@ export function listTerminalSessions(
         railGroup: m.railGroup,
         lastTitle: m.lastTitle,
         needsAttention: m.needsAttention === true,
+        orchestrator: m.orchestrator === true,
         activityState: m.activityState ?? 'idle',
         status: browserCount > 0 ? ('active' as const) : ('suspended' as const),
         browserCount,

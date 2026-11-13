@@ -270,9 +270,13 @@ recover a worker. The relay keeps a bounded 64 KB output buffer for every agent
 terminal so `terminal_status` can report recent lines; it is for debugging and
 never feeds status.
 
-The user can mark one agent terminal per project as the **orchestrator**
+One agent terminal per project can hold the **orchestrator** role
 (`terminal.setOrchestrator`; `terminal.startOrchestrator` spawns an agent
-terminal in the scope of the current dock and marks it). A project here is the
+terminal in the scope of the current dock and marks it). The robot button in the
+Claude dock is one click: it focuses the project's live orchestrator, or starts
+one when there is none, and never clears the role. A separate block button turns
+dispatch to the active terminal off and on. The rail lists the orchestrator first
+in its project. A project here is the
 workspace and project slug pair, so all worktrees of a project count as one, and
 workspace-scope terminals of a workspace count as one project. The user can block dispatch to any
 terminal (`terminal.setDispatchOptOut`). Both flags live on the session meta, are
@@ -650,6 +654,9 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-1240 | WHEN `terminal.setOrchestrator` is called for a live agent terminal, the system SHALL set or clear `orchestrator` on its session meta, persist it, and clear it from every other session of the same workspace and project so at most one terminal per project holds the role; it SHALL refuse unknown, dormant and plain-shell sessions, and no MCP tool SHALL set it. |
 | FR-TERMINAL-1250 | WHEN `terminal.setDispatchOptOut` is called for a live agent terminal, the system SHALL set or clear `dispatchOptOut` on its session meta and persist it; `terminal.listWorkers` SHALL return every live agent terminal with `connected`, `orchestrator` and `dispatchOptOut`. |
 | FR-TERMINAL-1260 | WHEN `terminal.startOrchestrator` is called with a workspace slug, and optionally a project slug, worktree branch and working dir from the current dock, the system SHALL spawn an agent terminal at that project's scope (workspace scope without a project slug), in the given working dir or else the first workspace repo, with an orchestrator brief as its initial prompt, mark it as the orchestrator, and not connect it as a dispatch worker; it SHALL refuse an unknown workspace, an unknown project, an agent type deactivated in the workspace, and a missing daemon. |
+| FR-TERMINAL-1270 | WHEN the user clicks the orchestrator button in a terminal dock, and a live agent terminal of the dock's workspace and project holds the orchestrator role, the browser SHALL focus that terminal and SHALL NOT change any role; WHEN no live terminal of that project holds the role, the browser SHALL call `terminal.startOrchestrator` with the dock's scope at once, with no menu, and focus the new terminal. The button SHALL show amber WHILE the active terminal is the orchestrator. |
+| FR-TERMINAL-1280 | WHEN the user clicks the block-dispatch button in a terminal dock, the browser SHALL call `terminal.setDispatchOptOut` to toggle `dispatchOptOut` on the active agent terminal; the button SHALL show as pressed WHILE that terminal is opted out, and SHALL be disabled WHILE the active terminal is not a live agent terminal. |
+| FR-TERMINAL-1290 | WHILE a live terminal of a project holds the orchestrator role, the terminal rail SHALL list it first in that project, in the per-project rail and in that project's Command Center section: its worktree group SHALL come first, it SHALL lead that group, and it SHALL show outside any user rail group; activity, dock order, new terminals and user groups SHALL NOT move it down, and the Ctrl+Alt numbers (FR-TERMINAL-900) SHALL follow the same order. `GET /api/terminal/sessions` and the `TERMINAL_WORKERS_CHANGE` broadcast SHALL carry `orchestrator`, so a role change reorders the rail at once. |
 
 ## Sources
 

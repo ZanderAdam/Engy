@@ -33,7 +33,7 @@ import { mcpResult, mcpError } from './result';
 
 // Cross-terminal dispatch tools. These are agent-only (no tRPC counterparts by
 // design — browsers manage the worker set via terminal.connectWorker /
-// disconnectWorker and the orchestrator role via terminal.setOrchestrator;
+// disconnectWorker and the orchestrator role via terminal.startOrchestrator;
 // agents are the only callers of dispatch/reply/collect).
 
 const DEFAULT_STATUS_LINES = 50;

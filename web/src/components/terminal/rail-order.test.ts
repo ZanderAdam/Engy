@@ -4,6 +4,11 @@ import type { TerminalRailGroup, TerminalTab } from './types';
 
 const OPS: TerminalRailGroup = { id: 'ops', name: 'Ops' };
 
+function orchestrator(sessionId: string, worktreeBranch?: string): TerminalTab {
+  const base = tab(sessionId);
+  return { ...base, orchestrator: true, scope: { ...base.scope, worktreeBranch } };
+}
+
 function tab(sessionId: string, railGroup?: TerminalRailGroup): TerminalTab {
   return {
     sessionId,
@@ -61,6 +66,39 @@ describe('terminal rail order', () => {
 
     it('[FR-TERMINAL-900] should leave out the members of a collapsed group', () => {
       expect(railOrder(sections, [OPS.id]).map((t) => t.sessionId)).toEqual(['a', 'b']);
+    });
+  });
+  describe('orchestrator position', () => {
+    const order = (tabs: TerminalTab[], commandCenter = false) =>
+      railOrder(railSections(tabs, commandCenter, true), []).map((t) => t.sessionId);
+
+    it('[FR-TERMINAL-1290] should list the orchestrator first, ahead of older terminals', () => {
+      expect(order([tab('a'), tab('b'), orchestrator('orch')])).toEqual(['orch', 'a', 'b']);
+    });
+
+    it('[FR-TERMINAL-1290] should keep the orchestrator first when a user group comes before it', () => {
+      expect(order([tab('o1', OPS), tab('o2', OPS), orchestrator('orch')])).toEqual([
+        'orch',
+        'o1',
+        'o2',
+      ]);
+    });
+
+    it('[FR-TERMINAL-1290] should take the orchestrator out of a user group', () => {
+      const grouped = { ...orchestrator('orch'), railGroup: OPS };
+      expect(order([tab('o1', OPS), grouped])).toEqual(['orch', 'o1']);
+    });
+
+    it('[FR-TERMINAL-1290] should move the orchestrator worktree group above the default branch', () => {
+      expect(order([tab('a'), orchestrator('orch', 'feat/x'), tab('x')])).toEqual([
+        'orch',
+        'a',
+        'x',
+      ]);
+    });
+
+    it('[FR-TERMINAL-1290] should keep the orchestrator first in its Command Center project', () => {
+      expect(order([tab('a'), orchestrator('orch')], true)).toEqual(['orch', 'a']);
     });
   });
 });

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { RiPlugLine } from '@remixicon/react';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/lib/trpc';
-import { useOnServerEvent } from '@/contexts/events-context';
+import { useAgentTerminals } from './use-agent-terminals';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -17,20 +17,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
-// Live set of dispatch-connected worker session ids. Components rerender on
-// TERMINAL_WORKERS_CHANGE broadcasts (connect/disconnect from any browser).
-function useDispatchWorkers() {
-  const utils = trpc.useUtils();
-  const { data } = trpc.terminal.listWorkers.useQuery();
-  useOnServerEvent('TERMINAL_WORKERS_CHANGE', () => {
-    void utils.terminal.listWorkers.invalidate();
-  });
-  return new Set((data ?? []).filter((w) => w.connected).map((w) => w.sessionId));
-}
-
-// Toggle button for the terminal dock header: connects the ACTIVE terminal as
-// a dispatch worker (with a user-supplied description other agents see in
-// terminal_list_workers), or disconnects it when already connected.
 export function TerminalWorkerButton({
   activeSessionId,
   defaultDescription,
@@ -40,16 +26,13 @@ export function TerminalWorkerButton({
 }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [description, setDescription] = useState('');
-  const utils = trpc.useUtils();
-  const workers = useDispatchWorkers();
-  const connectMutation = trpc.terminal.connectWorker.useMutation({
-    onSuccess: () => utils.terminal.listWorkers.invalidate(),
-  });
-  const disconnectMutation = trpc.terminal.disconnectWorker.useMutation({
-    onSuccess: () => utils.terminal.listWorkers.invalidate(),
-  });
+  const { agents, refresh } = useAgentTerminals();
+  const connectMutation = trpc.terminal.connectWorker.useMutation({ onSuccess: refresh });
+  const disconnectMutation = trpc.terminal.disconnectWorker.useMutation({ onSuccess: refresh });
 
-  const isConnected = activeSessionId != null && workers.has(activeSessionId);
+  const isConnected = agents.some(
+    (agent) => agent.sessionId === activeSessionId && agent.connected,
+  );
 
   function onToggle() {
     if (!activeSessionId) return;

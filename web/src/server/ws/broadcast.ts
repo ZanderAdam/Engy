@@ -146,6 +146,7 @@ interface TerminalWorkersChangeEvent {
   payload: {
     sessionId: string;
     connected: boolean;
+    orchestrator: boolean;
   };
 }
 
@@ -306,8 +307,15 @@ export function broadcastInboxChange(itemId: number | null, unreadPriorityCount:
   broadcastEvent({ type: 'INBOX_CHANGE', payload: { itemId, unreadPriorityCount } });
 }
 
-export function broadcastTerminalWorkersChange(sessionId: string, connected: boolean): void {
-  broadcastEvent({ type: 'TERMINAL_WORKERS_CHANGE', payload: { sessionId, connected } });
+export function broadcastTerminalWorkersChange(
+  sessionId: string,
+  connected: boolean,
+  orchestrator: boolean,
+): void {
+  broadcastEvent({
+    type: 'TERMINAL_WORKERS_CHANGE',
+    payload: { sessionId, connected, orchestrator },
+  });
 }
 
 export function broadcastVoiceSpeak(payload: VoiceSpeakEvent['payload']): void {

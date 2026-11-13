@@ -47,8 +47,8 @@ export interface TerminalSessionMeta {
   spawnedBy?: string;
   // How many agent hops separate this terminal from a user-opened one.
   spawnDepth?: number;
-  // Human-set (terminal.setOrchestrator only). The one terminal of a project
-  // that may dispatch to any live agent terminal of that project.
+  // Set over tRPC only (terminal.startOrchestrator from the dock, or
+  // terminal.setOrchestrator); no MCP tool grants it.
   orchestrator?: boolean;
   // Human-set: refuse every dispatch to this terminal.
   dispatchOptOut?: boolean;

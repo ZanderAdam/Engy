@@ -45,6 +45,7 @@ import {
 } from './types';
 import type { TerminalWorktreeGroup } from './worktree-grouping';
 import {
+  orchestratorFirst,
   railItems,
   railSections,
   splitParkedTabs,
@@ -374,7 +375,7 @@ export function TerminalRail({
 
   function renderSection(section: TerminalRailSection, dots: boolean) {
     const showWorktreeHeaders = section.worktreeGroups.length > 1;
-    const worktreeGroups = section.worktreeGroups.map((g) =>
+    const worktreeGroups = orchestratorFirst(section.worktreeGroups).map((g) =>
       renderWorktreeGroup(g, section.key, showWorktreeHeaders, dots),
     );
     const fullLabel = section.workspaceSlug

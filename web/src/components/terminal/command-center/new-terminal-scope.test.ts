@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { cloneScopeForNewTerminal } from './new-terminal-scope';
 import { groupTabsByWorktree } from '../worktree-grouping';
+import { railSections } from '../rail-order';
 import type { TerminalTab, TerminalScope } from '../types';
 
 function tab(sessionId: string, scope: Partial<TerminalScope>): TerminalTab {
@@ -37,6 +38,34 @@ describe('command center', () => {
         projectSlug: 'alpha',
         workspaceSlug: 'ws',
       });
+    });
+
+    it('[FR-TERMINAL-1290] should not clone from the orchestrator worktree when the orchestrator leads the rail', () => {
+      const orchestrator = { ...tab('orch', { worktreeBranch: 'feat-x' }), orchestrator: true };
+      const [section] = railSections(
+        [tab('a', { worktreeBranch: 'main' }), tab('x', { worktreeBranch: 'feat-x' }), orchestrator],
+        true,
+        true,
+      );
+
+      const scope = cloneScopeForNewTerminal(section.worktreeGroups);
+
+      expect(scope?.workingDir).toBe('/repo/a');
+      expect(scope?.worktreeBranch).toBe('main');
+    });
+
+    it('[FR-TERMINAL-1290] should not clone the orchestrator when it is the oldest terminal', () => {
+      const orchestrator = { ...tab('orch', { worktreeBranch: 'feat-x' }), orchestrator: true };
+      const [section] = railSections(
+        [orchestrator, tab('a', { worktreeBranch: 'main' })],
+        true,
+        true,
+      );
+
+      const scope = cloneScopeForNewTerminal(section.worktreeGroups);
+
+      expect(scope?.workingDir).toBe('/repo/a');
+      expect(scope?.worktreeBranch).toBe('main');
     });
 
     it('[FR-TERMINAL-190] strips a trailing ordinal so the manager can re-suffix cleanly', () => {

@@ -88,6 +88,7 @@ interface PrAttentionPayload {
 interface TerminalWorkersChangePayload {
   sessionId: string;
   connected: boolean;
+  orchestrator: boolean;
 }
 
 interface VoiceSpeakPayload {

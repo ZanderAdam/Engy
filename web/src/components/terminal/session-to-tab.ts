@@ -19,6 +19,7 @@ export interface SessionListItem {
   railGroup?: TerminalRailGroup;
   lastTitle?: string;
   needsAttention?: boolean;
+  orchestrator?: boolean;
   activityState?: TerminalActivityState;
   status: 'active' | 'suspended';
   browserCount: number;
@@ -58,5 +59,6 @@ export function sessionToTab(s: SessionListItem, fallbackGroupKey: string): Term
     // otherwise a hook-derived title never reaches a tab built from this list.
     oscTitle: s.lastTitle,
     needsAttention: s.needsAttention,
+    orchestrator: s.orchestrator,
   };
 }

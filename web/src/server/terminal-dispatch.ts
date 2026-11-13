@@ -192,7 +192,10 @@ export function dispatchRefusal(
     return sameProject(orchestrator, workerMeta) ? null : OUTSIDE_PROJECT_REASON;
   }
   if (state.dispatchWorkers.has(workerSessionId)) return null;
-  return 'That terminal is not connected as a worker. Call terminal_list_workers for connected workers; the user connects one from the terminal panel, or marks one terminal as the orchestrator.';
+  if (callerSessionId != null && state.terminalSessionMeta.has(callerSessionId)) {
+    return 'That terminal is not connected as a worker, and your terminal does not hold the orchestrator role (terminal_whoami shows it). Ask the user to connect that terminal with its plug button, or to start an orchestrator with the robot button in the terminal dock.';
+  }
+  return 'That terminal is not connected as a worker. Call terminal_list_workers for connected workers; the user connects one from the terminal panel, or starts an orchestrator.';
 }
 
 // Bounds a StopFailure hold. FR-TERMINAL-840 clears it on the session's next
@@ -923,7 +926,15 @@ function updateDispatchFlags(
   if (!meta) return;
   apply(meta);
   persistTerminalSession(sessionId, meta);
-  broadcastTerminalWorkersChange(sessionId, state.dispatchWorkers.has(sessionId));
+  broadcastDispatchFlags(state, sessionId);
+}
+
+export function broadcastDispatchFlags(state: AppState, sessionId: string): void {
+  broadcastTerminalWorkersChange(
+    sessionId,
+    state.dispatchWorkers.has(sessionId),
+    state.terminalSessionMeta.get(sessionId)?.orchestrator === true,
+  );
 }
 
 export function setOrchestrator(state: AppState, sessionId: string, enabled: boolean): void {

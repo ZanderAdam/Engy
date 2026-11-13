@@ -1,0 +1,212 @@
+---
+description: MCP HTTP session lifecycle, transport management, idle reaper, response envelope, and trace tool.
+order: 15
+---
+
+# MCP Server Session
+
+Engy exposes a Model Context Protocol (MCP) endpoint at `/mcp` using the `StreamableHTTPServerTransport` from `@modelcontextprotocol/sdk`. AI agents (Claude Code CLI and equivalent) connect here to call the full Engy tool surface. The session layer is implemented in `web/src/server/mcp/index.ts` and is mounted onto the Node.js `http.Server` from `web/server.ts` via `attachMCP()`.
+
+## Session lifecycle
+
+Each HTTP `POST /mcp` without an `mcp-session-id` header triggers `handleNewSession()`, which allocates a `StreamableHTTPServerTransport` (with a `randomUUID()` session-id generator) and a fresh `McpServer` from `getMcpServer()`. Once the transport fires `onsessioninitialized`, the session is registered in the module-level `activeSessions: Map<string, StreamableHTTPServerTransport>` and `lastActivity` is stamped via `touchSession()`.
+
+Subsequent `POST /mcp` requests carrying a known `mcp-session-id` header are routed to the already-registered transport — no new `McpServer` is allocated, and `touchSession()` refreshes the idle timestamp.
+
+`GET /mcp` (the SSE stream for server-sent notifications) and `DELETE /mcp` (explicit session teardown) both require the `mcp-session-id` header. A missing header returns HTTP 400; an unknown id returns HTTP 404. `DELETE` removes the session from `activeSessions` and `lastActivity`, calls `transport.close()`, and returns HTTP 200. Unsupported HTTP methods receive HTTP 405.
+
+## Per-session McpServer isolation
+
+`getMcpServer()` creates and returns a new `McpServer` instance on every call. This gives each MCP session its own isolated server with no shared mutable state. To avoid per-session closure leaks, all Zod input schemas are hoisted to module-scope constants (`*Input` consts) and shared across every `McpServer` instance — they are passed into `mcp.tool(...)` calls rather than being reconstructed inline.
+
+## Response envelope
+
+Every tool handler returns a uniform `McpToolResult` via one of two helpers:
+
+- `mcpResult(data)` — `{ content: [{ type: 'text', text: JSON.stringify(data) }] }`
+- `mcpError(message)` — same shape with `isError: true` and `{ error: message }` as the JSON body
+
+Callers parse `result.content[0].text` as JSON to obtain the payload. This shape is mandated by the MCP SDK's tool result contract and is the same for every tool in the server.
+
+## Idle session reaper
+
+MCP clients routinely drop the connection without sending a `DELETE`, and in SDK 1.27 `transport.onclose` is coupled to TCP keepalive rather than true session end (upstream issue #1852), making it fire unpredictably. Without a backstop, every agent run would leak a full `McpServer` and Zod graph.
+
+`evictIdleSessions(now)` iterates `activeSessions` and closes any session whose `lastActivity` timestamp is more than `SESSION_IDLE_TTL_MS` (30 minutes) in the past. Evicted sessions have `transport.close()` called, are removed from both `activeSessions` and `lastActivity`, and are logged. A session with no recorded activity is treated as just-seen (safe default).
+
+The sweep runs on `setInterval` every `SESSION_SWEEP_MS` (5 minutes). The timer is started once from `attachMCP()` and guarded on `globalThis.__engy_mcp_session_reaper__` — the same pattern as the `AppState` singleton — so Next.js HMR re-imports do not register a second interval.
+
+## Trace tool
+
+The `trace` MCP tool exposes requirements traceability to agent sessions. It calls `traceWorkspace()` from `web/src/server/search/trace.ts`, which builds a traceability matrix by scanning the workspace's feature docs for FR definitions and the repos for tagged tests, then answers one of three directional queries depending on which optional parameters are supplied.
+
+The tool accepts an optional `sessionId` parameter. When present, `resolveWorktreeRoots(sessionId)` (from `web/src/server/trpc/routers/shared.ts`) replaces `ws.repos` as the set of code roots to scan, scoping the result to the calling agent's worktree so uncommitted changes are visible.
+
+**fr-mode** — called with `workspaceId` and `fr` (e.g. `FR-SEARCH-003`): returns `{ kind: 'fr', fr, found, covered, requirement?, tests, sources, orphanTags }`. `found` is false when no definition exists for that id; `covered` is true when at least one test tag matches; `requirement` (present only when `found` is true) carries `{ id, text, file, line }` from the feature doc; `tests` is the list of matching test tags; `sources` lists colocated source files; `orphanTags` lists test tags that reference the FR but have no corresponding definition.
+
+**file-mode** — called with `workspaceId` and `file` (a source or test path): returns `{ kind: 'file', file, defines, coveredBy }`. `defines` is the list of FR ids declared in that file; `coveredBy` is a list of `{ fr, role }` objects where `role` is either `'source'` or `'test'`, indicating how the file participates in each FR's traceability.
+
+**summary-mode** — called with `workspaceId` and no `fr` or `file`: returns `{ kind: 'summary', totals: { definitions, tags, uncovered, orphanTags }, uncovered, orphanTags, duplicateIds, malformed }`. `totals` gives workspace-wide counts; `uncovered` lists FR ids with no test coverage; `orphanTags` lists test tags referencing undefined FRs; `duplicateIds` and `malformed` surface integrity issues in the requirements table.
+
+## Per-session identity (`/mcp/<token>`)
+
+Agents Engy spawns get a per-session MCP endpoint `/mcp/<terminalSessionId>` (the
+token is substituted into the command at spawn — see the Terminal Relay feature).
+`attachMCP` matches the `/mcp` path prefix, extracts the token, and — because the
+`McpServer` is created per connection — closes it over every tool call on that
+session. The path is the only identity channel every MCP client honors: a client
+always POSTs to the endpoint URL it was configured with (the MCP `Mcp-Session-Id`
+is server-assigned and does not convey client identity). `terminal_whoami` exposes
+the resolved identity; plain `/mcp` (hand-configured agents, the daemon) stays
+anonymous. This underpins `terminal_spawn`'s caller checks and dispatch
+attribution.
+
+## Cross-terminal dispatch tools
+
+`registerTerminalTools` (`web/src/server/mcp/terminal-tools.ts`) exposes the
+cross-terminal dispatch surface: `terminal_list_workers`, `terminal_dispatch`
+(async by default, sync-with-timeout optional), `terminal_collect`,
+`terminal_reply`, `terminal_status`, and `terminal_spawn`. These tools are
+**agent-only by design** — the browser manages the connected-worker set and the
+orchestrator role via the `terminal` tRPC router, while agents are the only
+callers of dispatch/reply/collect/spawn. `terminal_list_workers` lists every
+live agent terminal of every workspace (plain shells excluded), or only the
+caller's own project when the caller holds the orchestrator role,
+each with a `connected` flag, workspace, project, branch and task identity, and
+a `link`. Authorization for `terminal_dispatch` has three parts, checked in
+`dispatchRefusal`: the target must be a live agent terminal that the user did
+not opt out of dispatch; it must be a connected worker, or, when the caller holds
+the orchestrator role, a terminal of the caller's project, connected or not; and
+a terminal never dispatches to itself. The
+orchestrator role is a human-set flag on one terminal per project (`terminal.setOrchestrator`);
+no MCP tool offers it. The server is single-user and unauthenticated, so this
+stops an honest agent from granting the role, not a hostile process that calls
+tRPC directly. The connected-worker
+set itself is process memory and is lost on a web restart; dispatches, inbox
+and notices are not (the `dispatches` and `dispatch_notices` tables). A dispatch
+is `queued`, then `written` (PTY write sent), then `delivered` (the worker's
+`UserPromptSubmit` hook opened the turn; a worker without hooks stays
+`written`), then `replied`, `stopped` (the turn ended with no `terminal_reply`;
+`stopReason` and `lastOutput` say why and what the worker last wrote) or
+`failed`. Reply authorization is the worker's own `/mcp/<token>`
+identity: the server matches an id-less `terminal_reply` to the caller's
+in-flight dispatch (`delivered`, else `written`, else the worker's most recent
+`stopped` one for a late reply; that is the worker's current-turn row first,
+then the single in-flight row, and otherwise an error that asks for the id),
+and the injected contract is `[engy-dispatch <id>]` plus "report the outcome via
+terminal_reply". `terminal_reply` takes optional
+`evidence` (commit hash, commands with exit codes, files changed, not-verified
+items); the server asks the daemon whether the commit exists and stores it as
+`commitVerified` `verified`, `not_found` or `unverified` (no daemon answer). The
+server never runs git itself. Workers without a per-session
+endpoint must echo the id from the `[engy-dispatch <id>]` marker. `terminal_status` takes `lines` (default 50) of
+output from a 64 KB per-terminal buffer, for debugging only, and additionally surfaces
+`activeSubagents` and `lastFailure` — a live subagent count and any recorded
+`StopFailure` state, both maintained on the session by the Claude Code hook
+channel (see the terminal-relay area) — so a dispatching agent can see why a
+worker went quiet. Async dispatches from identified callers do
+not need `terminal_collect` polling — the settled result is pushed into the
+origin terminal as an informational notice (idle-gated, queued while the
+origin is busy); the same push happens when a sync wait times out or the
+worker dies. Dispatch mechanics (idle-gating, inbox, paste behavior) live in
+the Terminal Relay feature.
+
+### Agent-originated spawn (`terminal_spawn`)
+
+An identified agent can spawn a terminal running any registered agent CLI,
+including its own type — a Claude orchestrator can spawn a Codex reviewer or
+another Claude. The caller's identity is resolved server-side from its
+`/mcp/<token>` identity, so no self-reporting is involved. Guard rails: the
+`cwd` must be inside a workspace repo (worktrees under a repo, and project
+worktrees under the workspace `worktrees/` dir, count), the spawn depth may not
+pass 2 (`spawnDepth`, recorded on each spawned session), at most 5 agent-spawned
+sessions may be live at once (type-agnostic), a caller may spawn at most 10
+times in 10 minutes (so closing and re-spawning cannot loop), and a terminal
+daemon must be connected. A spawn that leaves more than 3 agent-spawned
+sessions active succeeds with a `warning`. The workspace that owns `cwd`
+decides the agent settings (a deactivated agent is refused) and the UI scope: a
+repo cwd gets workspace scope, a project worktree cwd gets project scope with
+the branch read from the daemon. `spawnAgentTerminal`
+(`web/src/server/terminal-dispatch.ts`) performs the server-originated spawn:
+unlike browser-initiated spawns, the session id is generated first, so the
+spawned CLI command carries its resolved `/mcp/<sessionId>` endpoint (no
+placeholder substitution). The new session takes the UI scope of the target
+`cwd` (group, workspace, project) so it appears in the terminal rail, records
+`spawnedBy` and `spawnDepth`, and is auto-connected as a dispatch worker; the MCP origin for
+the spawned agent is derived from the caller's own spawn command (fallback:
+the server's local port). The session starts at activity state `active`, so
+the caller can `terminal_dispatch` immediately after spawning — the message
+queues in the worker's inbox and delivers on the CLI's first idle/done
+settle instead of being pasted into a half-booted TUI.
+
+The spawner alone can retire its workers with `terminal_close`: the daemon
+kills the PTY and the server tears down the session (worker registration,
+unsettled dispatches, destroyed broadcast — via the same
+`destroyTerminalSession` path as a browser kill), freeing the agent-spawn
+slot. User-opened and foreign-spawned terminals are refused.
+
+## Diff review tools
+
+`registerDiffReviewTools` (`web/src/server/mcp/diff-review-tools.ts`) lets a reviewing agent write its findings into the same `commentThreads` / `threadComments` tables the Diffs tab reads, so a review appears as inline comments on the diff rather than as text in a terminal. Four tools: `diff_review_comment` anchors one finding to a line, `diff_review_summary` writes the single unanchored summary — overview, risk, the change groups of the guided review and markdown notes — shown above the first file, `diff_review_list` reads back what is already on the diff — the agent's own findings and the human comments left on it — and `diff_review_resolve` closes a finding the agent itself filed. Resolve refuses any thread the agent did not write: closing a human's comment is the human's call.
+
+Like the `terminal_*` tools these are agent-only and have no tRPC counterpart. The browser writes the same rows through `comment.createThread`, building the `diff://` path from the same `web/src/lib/diff-doc-path.ts` helper; the MCP tools exist so an agent does not reconstruct that path and metadata shape by hand, and therefore take a diff-shaped input instead of mirroring the comment router.
+
+Three invariants make the surface work:
+
+- **A review belongs to a branch.** The path a tool writes to is `diff://<repoDir>#<branch>/<filePath>`, and the branch is read from the daemon at call time (`dispatchGitBranch`, which resolves `HEAD` alone) rather than taken from a tool argument — an agent that switched branches since it last looked cannot file onto the wrong review. A repo whose branch cannot be read fails the call, since the alternative is a finding nobody will see.
+
+- **Threads are workspace-less.** The Diffs tab calls `comment.listThreadsByPrefix` with no `workspaceSlug`, and that query filters on `workspaceId IS NULL`. A workspace-scoped thread would be written successfully and never appear.
+- **Authorship is derived, not declared.** `source: 'agent'`, `agentSessionId` and `agentType` come from the `/mcp/<terminalSessionId>` token and its `terminalSessionMeta` entry. A caller cannot set them, which is what makes `source` reliable as the discriminator that separates agent findings from the user's own comments — a re-review clears the former without touching the latter.
+
+`diff_review_comment` requires a `failureScenario` alongside the finding. A finding whose failure cannot be described concretely is the kind that reads as true but costs the reader attention, so the tool boundary is where that is refused rather than the prompt.
+
+## Requirements
+
+Functional requirements in EARS notation. These are the single source of truth for the MCP server session feature's behaviour. Tag the verifying tests with the FR id in their title string, e.g. `it('[FR-MCP-010] ...', ...)`, and run `trace` (or `engy:validate`) to check coverage.
+
+| ID | Requirement (EARS) |
+|----|--------------------|
+| FR-MCP-010 | WHEN a `POST /mcp` request arrives without an `mcp-session-id` header, the system SHALL create a new `StreamableHTTPServerTransport` with a `randomUUID` session-id generator, connect a fresh `McpServer` instance, register the transport in `activeSessions`, and stamp `lastActivity` via `touchSession`. |
+| FR-MCP-020 | WHEN a `POST /mcp` request arrives with an `mcp-session-id` header matching an entry in `activeSessions`, the system SHALL refresh `lastActivity` via `touchSession` and delegate the request to the existing transport without creating a new `McpServer`. |
+| FR-MCP-030 | WHEN a `GET /mcp` or `DELETE /mcp` request arrives without an `mcp-session-id` header, the system SHALL respond with HTTP 400 and a JSON body `{ "error": "Missing mcp-session-id header" }`. |
+| FR-MCP-040 | WHEN a `GET /mcp` or `DELETE /mcp` request arrives with an `mcp-session-id` that is not present in `activeSessions`, the system SHALL respond with HTTP 404 and a JSON body `{ "error": "Session not found" }`. |
+| FR-MCP-050 | WHEN a `DELETE /mcp` request arrives with a known `mcp-session-id`, the system SHALL remove the session from `activeSessions` and `lastActivity`, call `transport.close()`, and respond with HTTP 200. |
+| FR-MCP-060 | The system SHALL return a distinct `McpServer` instance from each call to `getMcpServer()`, sharing module-scope Zod input schema objects across instances to avoid per-session closure leaks. |
+| FR-MCP-070 | The system SHALL return every MCP tool result as `{ content: [{ type: "text", text: "<JSON>" }] }`, and every tool error as the same shape with `isError: true` and `{ "error": "<message>" }` as the JSON body. |
+| FR-MCP-080 | WHILE the server is running, the system SHALL evict any session whose `lastActivity` is more than 30 minutes in the past by calling `transport.close()` and removing it from both `activeSessions` and `lastActivity`, on a sweep interval of 5 minutes, with the sweep timer started at most once per process via a `globalThis` guard. |
+| FR-MCP-090 | WHEN the `trace` tool is called with a `workspaceId` and an `fr` id, the system SHALL return `{ kind: "fr", fr: string, found: boolean, covered: boolean, requirement?: { id, text, file, line }, tests: TestTag[], sources: string[], orphanTags: TestTag[] }` mapping that FR to its requirement text, tagged tests, colocated source files, and any test tags that reference the FR but have no definition. |
+| FR-MCP-095 | WHEN the `trace` tool is called with a `workspaceId` and no `fr` or `file` argument, the system SHALL return `{ kind: "summary", totals: { definitions, tags, uncovered, orphanTags }, uncovered: string[], orphanTags: TestTag[], duplicateIds: string[], malformed: TraceabilityMatrix["malformed"] }` listing workspace-wide coverage gaps and integrity issues. |
+| FR-MCP-100 | WHEN the `trace` tool is called with a `workspaceId` and a `file` path, the system SHALL return `{ kind: "file", file: string, defines: string[], coveredBy: { fr: string, role: "source" \| "test" }[] }` listing the FRs defined in that file and all FRs for which the file acts as a source or test. |
+| FR-MCP-110 | WHEN `terminal_dispatch` is called, the system SHALL reject a target without live session metadata, a dormant tab, a plain shell, a terminal the user opted out of dispatch, the caller's own session, a target not in the connected-worker set when the caller does not hold the orchestrator role (WHEN that caller is an identified live terminal, the error SHALL say it does not hold the orchestrator role), and a target outside the caller's workspace and project when it does, connected or not; in async mode it SHALL return the correlation id and dispatch status immediately, and it SHALL fail a queued dispatch at delivery when its origin now holds the orchestrator role and the target is outside the origin's project; in sync mode it SHALL wait up to `timeoutSeconds` for the reply and return the pending status with a `terminal_collect` hint on timeout instead of failing. |
+| FR-MCP-120 | WHEN `terminal_reply` is called with a correlation id, the system SHALL settle the matching unsettled dispatch exactly once (resolving all waiters); unknown or already-settled correlation ids SHALL produce a tool error. WHEN `terminal_reply` is called without a correlation id by an identified worker, the system SHALL settle the dispatch tagged by the worker's current turn, else the single in-flight (`delivered` or `written`) dispatch, else the most recent `stopped` one when no new turn opened since its `Stop` and it stopped under 10 minutes ago (never a `queued` one), and SHALL produce a tool error that asks for the correlation id when none matches or several are in flight, including a duplicate reply after the dispatch settled (no second notice); anonymous callers without a correlation id SHALL receive a tool error directing them to the `[engy-dispatch <id>]` marker. |
+| FR-MCP-130 | WHEN `terminal_list_workers` is called, the system SHALL return every live agent terminal of every workspace (plain shells and dormant tabs excluded), limited to the caller's workspace and project when the caller holds the orchestrator role, with its description, agent type, scope label, working dir, activity state, `connected`, `orchestrator`, `dispatchOptOut`, workspace slug, project slug, worktree branch, task id, and a `link` (`<origin>/t/<sessionId>`, origin taken from the caller's own MCP URL), and SHALL return an empty list with a hint when no agent terminal is live. |
+| FR-MCP-140 | WHEN `terminal_status` is called with a live agent terminal's session id, connected or not, the system SHALL return the worker info (including `link`) plus the last `lines` lines (default 50, at most 1000) of the terminal's output buffer with terminal escape sequences stripped, but SHALL omit the output for a terminal that is not a connected worker when the caller does not hold the orchestrator role, and for a terminal outside the caller's workspace and project when it does; the output SHALL NOT feed any status. |
+| FR-MCP-150 | WHEN an MCP client connects at a per-session endpoint `/mcp/<terminalSessionId>`, the system SHALL bind that terminal session id to the connection; `terminal_whoami` SHALL return `{ identified: true, live, terminalSessionId, agentType, scopeLabel, workingDir, orchestrator, link }` resolved from `terminalSessionMeta` (`live: false` and `agentType: null` when no live session backs the token). WHEN the client connects at plain `/mcp` or empty-token `/mcp/`, `terminal_whoami` SHALL return `{ identified: false }`; WHEN the path token has invalid percent-encoding, the request SHALL be rejected with HTTP 400. |
+| FR-MCP-160 | WHEN `terminal_spawn` is called, the system SHALL refuse: anonymous callers (no path token), callers without a live terminal session, callers whose agent type is unknown, an unknown requested `agentType`, a relative `cwd`, a `cwd` no workspace owns (a workspace repo, worktrees under it, or a project worktree), a `cwd` outside the project of a caller that holds the orchestrator role (FR-MCP-340), a requested `agentType` deactivated in the settings of the workspace that owns `cwd`, a caller already at spawn depth 2, 5 live agent-spawned sessions, more than 10 spawns by the caller in 10 minutes (closing a terminal does not reset this), and spawning with no terminal daemon connected; WHEN the spawn leaves more than 3 agent-spawned sessions active, the result SHALL carry a `warning`; the spawned session SHALL be a host session (`containerMode: 'host'`). |
+| FR-MCP-170 | WHEN `terminal_spawn` passes validation, the system SHALL generate a new terminal session id, send a spawn command to the daemon whose agent CLI command carries the resolved per-session MCP endpoint `/mcp/<newSessionId>`, register session metadata recording `spawnedBy` and `spawnDepth` (caller depth + 1), taking the UI scope (groupKey, workspace, project, worktree branch) from the workspace and project that own `cwd` and not from the caller (FR-MCP-340 is the one exception), and starting at activity state `active` (so dispatches sent while the CLI boots queue and deliver on its first idle/done settle), auto-connect the session as a dispatch worker, broadcast the session creation, and return the new session id. |
+| FR-MCP-180 | WHEN a dispatch created by an identified caller settles (replied, stopped or failed) and the dispatch was async or its sync wait timed out, the system SHALL inject an informational `[engy-notice <correlationId>]` settled-notice (worker description, result with a one-line evidence summary including `commitVerified`, error, or for a stopped dispatch the stop reason and last output, capped at 2000 chars, and a do-not-reply/re-dispatch note) into the origin terminal — immediately when the origin is idle with no queued dispatches or notices, otherwise (busy, typing hold, or dormant origin) queued in SQLite and flushed combined on the origin's next idle transition, before any queued dispatch; a flush that fails because no daemon is connected SHALL requeue the notices. Notices whose origin terminal no longer exists SHALL be dropped. |
+| FR-MCP-190 | WHEN `terminal_close` is called by an identified caller with the session id of a terminal whose `spawnedBy` equals the caller's session, the system SHALL send a kill command to the daemon and tear down the session's server state (meta, worker registration, unsettled dispatches failed, destroyed broadcast), freeing its agent-spawn slot; the system SHALL refuse anonymous callers, unknown sessions, terminals not spawned by the caller (user-opened or foreign-spawned), and closes attempted with no daemon connected (leaving state untouched). |
+| FR-MCP-200 | WHEN `terminal_status` is called, the system SHALL additionally include `activeSubagents` (defaulting to 0) and `lastFailure` (defaulting to `undefined`) resolved from the worker's session metadata, alongside the existing worker info and output tail. |
+| FR-MCP-210 | WHEN `replyToComment` is called with a `threadId` and `body`, the system SHALL append an `agent`-attributed comment to that thread, serialised to the thread's own body shape, and SHALL return the thread id, comment id, document path, and thread kind; IF `resolve` is true the thread SHALL also be marked resolved; an unknown `threadId` SHALL produce a tool error. |
+| FR-MCP-220 | WHEN `diff_review_comment` is called, the system SHALL insert a comment thread at `diff://<repo>#<branch>/<filePath>` — the branch and the repo both read from the daemon rather than from the call, so a caller inside a worktree files against the repo the worktree belongs to and not against its own path — with `workspaceId: null` and metadata `{ type: 'diff', source: 'agent', lineNumber, codeLine, side, severity }` — `side` defaulting to `modified`, plus `evidence` when the caller supplies one and omitted entirely otherwise — whose single comment body carries the finding, its failure scenario, and the suggested fix when one is given, and SHALL return the new thread id. |
+| FR-MCP-230 | WHEN a diff-review tool writes a thread, the system SHALL derive `source: 'agent'` and, for a caller identified by a `/mcp/<terminalSessionId>` token backed by live session metadata, `agentSessionId` and `agentType`, from the connection alone; a caller-supplied `source` SHALL NOT be honoured, and an anonymous caller's thread SHALL still record `source: 'agent'` with no `agentSessionId`. |
+| FR-MCP-240 | WHEN `diff_review_summary` is called, the system SHALL delete any existing thread at `diff://<repoDir>#<branch>/` before inserting the new summary thread with metadata `{ type: 'review-summary', source: 'agent' }` plus any supplied `risk`, `readingOrder` and `guide` (see FR-MCP-270), so one summary stands per branch of a repo while anchored findings are left untouched, and SHALL broadcast an inbox change so the risk badge of the matching Inbox item refreshes. |
+| FR-MCP-260 | WHERE a `diff_review_*` call names no `repoDir`, the system SHALL review the directory the calling terminal session reports itself in — the directory the agent moved to, otherwise the one it was started in — so an agent never has to repeat back a path the call's own session already carries; IF the call carries no terminal session, THEN the system SHALL refuse it and say to pass `repoDir`. |
+| FR-MCP-250 | WHEN `diff_review_list` is called without a `filePath`, the system SHALL return every workspace-less thread whose `documentPath` starts with `diff://<repoDir>#<branch>/`, compared exactly and case-sensitively, so branch `fix_a` never returns threads of `fix-a`; WHEN a `filePath` is given, the system SHALL return only threads whose `documentPath` equals `diff://<repoDir>#<branch>/<filePath>` exactly, so a file is never paired with one whose name extends it (`Foo.ts` with `Foo.tsx`). Each thread SHALL be returned as `{ threadId, type, source, filePath, lineNumber, side, severity, evidence, resolved, body }`, alongside a `summary` field carrying the review-summary body or `null` when no review exists. |
+| FR-MCP-255 | IF a diff-review tool cannot read the branch of the repo it was called for — no daemon connected, or a path git cannot report on — THEN the system SHALL fail that call with an error naming the repo and the reason, and SHALL NOT write the thread under an unscoped path. |
+| FR-MCP-265 | WHEN `diff_review_resolve` is called with the id of a thread whose metadata records `source: 'agent'`, the system SHALL mark it resolved and broadcast the change; WHEN the thread was written by anyone else, or no thread carries that id, the system SHALL return a tool error naming the reason and leave the thread untouched. |
+| FR-MCP-275 | WHEN the directory a `diff_review_*` call resolves to equals or lies inside the `worktreePath` of a review worktree that the review created (`createdByReview`; a reused agent worktree is not one and takes the daemon's live branch), the system SHALL file and read threads under `diff://<repoPath>#<commentBranch>/` of that worktree's record (`reviewCommentBranch`, FR-PRREVIEW-151) — the main checkout and the PR head branch, or `pull/<n>/head` for a cross-repo PR, never the worktree path or `engy/review/pr-<n>` — and SHALL NOT ask the daemon for the branch, so local, agent and GitHub-imported threads of one PR share one key. |
+| FR-MCP-280 | WHEN a `diff_review_*` call resolves to a directory outside a review-created worktree, the system SHALL file and read threads under the workspace repo path whose canonical root (the `repoRoot` that the daemon reports) equals the `repoRoot` of that directory, spelled as stored in `workspace.repos` (symlinks and a trailing slash do not matter), so the Diffs tab reads the same key; IF no workspace repo matches, THEN the system SHALL use the `repoRoot` of the daemon. |
+| FR-MCP-270 | WHERE `diff_review_summary` is called with `risk` (`level` one of `low`, `typical`, `high`, `very_high`, and a `reason` of at most 300 characters) or `readingOrder` (at most 20 chapters of `{ title, files, note }`), or `guide` (`default` or `project`, the review guide the agent followed), the system SHALL store them in the summary thread metadata, and `diff_review_list` SHALL return them alongside the summary body, each `null` when absent; IF any is malformed or over those limits, THEN the system SHALL refuse the call and write nothing. |
+| FR-MCP-285 | WHERE `diff_review_summary` is called with an `overview` (at most 600 characters) or with `readingOrder` groups that carry `role` (`core`, `supporting`, `glue` or `tests`), `explanation` (at most 1500 characters), `systemContext` (at most 800 characters) or a group `risk` (the rules of `risk` in FR-MCP-270), the system SHALL store them in the summary thread metadata, and `diff_review_list` SHALL return `overview` (`null` when absent) and the groups with those fields; a group with only `{ title, files, note }` SHALL stay valid; IF any of these is malformed or over its limit, THEN the system SHALL refuse the call and write nothing. |
+| FR-MCP-340 | WHEN a caller that holds the orchestrator role calls `terminal_spawn`, the system SHALL place a `cwd` that is in a repo of the caller's workspace in the caller's project, with the worktree branch of the caller's dock (its group key, not its current HEAD), preferring the caller's workspace when two workspaces list the repo, and SHALL refuse a `cwd` in another project or workspace. |
+| FR-MCP-300 | The system SHALL keep dispatches (with their status, settle state and evidence) and the settled-notices queued per origin terminal in SQLite (`dispatches`, `dispatch_notices`), and SHALL derive each worker's inbox from its `queued` dispatches in creation order, so that a web restart keeps them and delivery stays idle-gated and one at a time. |
+| FR-MCP-301 | WHEN a dispatch's PTY write is sent, the system SHALL set its status to `written`, never `delivered`; WHEN the worker's `UserPromptSubmit` hook (non-subagent) opens the turn the paste started, the system SHALL set the `written` dispatch whose own `[engy-dispatch <id>]` marker (present in every reply contract) appears in the hook's `prompt` to `delivered` and record the turn's `prompt_id`, so a human turn, a bare marker text, or another dispatch's turn never acks a dispatch and a lost paste is never tagged by a later turn; the system SHALL record the `prompt_id` of every non-subagent turn as the worker's current turn; a worker whose CLI sends no hook SHALL stay `written`. |
+| FR-MCP-310 | WHEN the turn that carried a dispatch ends (`Stop` with the recorded `prompt_id`) with no `terminal_reply`, the system SHALL set the dispatch to `stopped` with `settledBy: 'hook'`, a `stopReason` and the worker's `lastOutput`, resolve sync waiters, and push the reason and last output in the `[engy-notice]`; `terminal_collect` SHALL return them; a later `terminal_reply` by id, or without an id while no new turn opened and under 10 minutes passed, SHALL still settle it as `replied`; silence alone SHALL NOT mark a dispatch or worker failed or dead. |
+| FR-MCP-320 | WHERE `terminal_reply` carries `evidence` (`commit`, `commands` with exit codes, `filesChanged`, `notVerified`), the system SHALL store it with the dispatch and return it from `terminal_reply` and `terminal_collect`; WHEN `commit` is given, the system SHALL ask the daemon for that commit in the replying terminal's repo and record `commitVerified` as `verified`, `not_found` only when git reports a bad object or revision, and `unverified` for any other failure (no daemon, timeout, not a repo, an ambiguous short hash), using the replying terminal's coder workspace when it has one, and SHALL NOT run git on the server. |
+| FR-MCP-330 | WHEN `worktree_list` is called, optionally with a `workspaceSlug`, the system SHALL return, read-only and for any caller, every git worktree of the workspace repos as read from the daemon, each with workspace slug, repo path, worktree path, branch, `isMain`, `isLocked` and the live agent terminals working in it, and SHALL report a repo the daemon cannot read in `errors` while still returning the rest; the system SHALL NOT offer worktree creation. |
+| FR-MCP-290 | WHEN `terminal_sessions` is called, by an identified or an anonymous caller, the system SHALL return every agent session of every workspace as a read-only list: each live or dormant terminal from `terminalSessionMeta` and, per workspace, up to 10 of the most recent history rows that no live terminal resumes; each row SHALL carry `state` (`live`, `dormant` or `closed`), agent type, scope label, workspace, project and branch, and a `link` (`<origin>/t/<id>`, origin taken from the caller's own MCP URL) — keyed by the terminal session id for live and dormant rows and by the history row key for closed rows; live and dormant rows SHALL also carry `activityState`, `lastTitle`, `taskId`, `lastFailure` and `activeSubagents`, and closed rows `summary` and `closedAt`; the system SHALL NOT list plain shells. A live or dormant row with no workspace SHALL still be listed, and its `link` resolves to the not-found state of FR-TERMINAL-1220. |
+
+## Sources
+
+No prior knowledge found.
