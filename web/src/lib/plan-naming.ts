@@ -10,6 +10,10 @@ export function taskPlanSlug(workspaceSlug: string, taskId: number): string {
   return workspaceSlug ? `${workspaceSlug}-T${taskId}` : '';
 }
 
+export function taskLabel(taskId: number): string {
+  return `T${taskId}`;
+}
+
 export function isPlanFile(filename: string): boolean {
   return filename.endsWith(PLAN_EXT);
 }

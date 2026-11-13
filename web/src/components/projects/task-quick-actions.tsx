@@ -31,7 +31,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/lib/trpc';
 import { resolveAgentSkills } from '@/lib/agent-types';
-import { planOutputTarget } from '@/lib/plan-naming';
+import { planOutputTarget, taskLabel } from '@/lib/plan-naming';
 import { useQuickAction } from '@/hooks/use-quick-action';
 import { useExecutionStatus } from '@/hooks/use-execution-status';
 import { useTaskHasPlan } from '@/hooks/use-task-has-plan';
@@ -94,7 +94,7 @@ export function TaskQuickActions({
       : `Use ${planSkill} to plan ${taskSlug}, output plan to ${target}`;
     launch({
       prompt,
-      scopeLabel: `${replan ? 'replan' : 'plan'}: ${taskSlug}`,
+      scopeLabel: `${replan ? 'replan' : 'plan'}: ${taskLabel(taskId)}`,
       containerMode: 'host',
       taskId,
     });
@@ -109,7 +109,7 @@ export function TaskQuickActions({
         : `Use ${implementSkill} for ${taskSlug}`;
     launch({
       prompt,
-      scopeLabel: `impl: ${taskSlug}`,
+      scopeLabel: `impl: ${taskLabel(taskId)}`,
       containerMode: useContainer ? 'container' : undefined,
       taskId,
       implementing: true,
@@ -124,7 +124,7 @@ export function TaskQuickActions({
   function handlePromptSubmit() {
     if (disabled || !taskSlug || !promptText.trim()) return;
     const prompt = `${promptText.trim()}\n\nTask: ${taskSlug}`;
-    launch({ prompt, scopeLabel: `prompt: ${taskSlug}`, taskId });
+    launch({ prompt, scopeLabel: `prompt: ${taskLabel(taskId)}`, taskId });
     maybePromote();
     setPromptOpen(false);
     setPromptText('');

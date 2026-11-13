@@ -5,6 +5,7 @@ import {
   planOutputTarget,
   planStemFromFilename,
   planStemFromWatchedPath,
+  taskLabel,
   taskPlanSlug,
   taskIdFromStem,
   taskSlugFromStem,
@@ -18,6 +19,12 @@ describe('plan naming', () => {
 
     it('returns empty string when workspace slug is empty', () => {
       expect(taskPlanSlug('', 42)).toBe('');
+    });
+  });
+
+  describe('taskLabel', () => {
+    it('shows only the task id without the workspace slug', () => {
+      expect(taskLabel(42)).toBe('T42');
     });
   });
 
