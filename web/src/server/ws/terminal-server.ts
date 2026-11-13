@@ -376,11 +376,14 @@ async function handleTerminalConnection(
 
     // Last OSC title doubles as the session's resume summary. Handled fully
     // server-side — the daemon has no use for it, so skip the generic forward.
+    // Claude titles come from the Stop hook: once Claude exits, the shell
+    // retitles the terminal to `user@host:path`.
     if (str.startsWith('{"t":"title"')) {
       try {
         const msg = JSON.parse(str) as TerminalTitleMsg;
         const meta = state.terminalSessionMeta.get(sessionId);
-        if (msg.sessionId === sessionId && meta && typeof msg.title === 'string') {
+        const ownsTitle = meta && meta.agentType !== 'claude';
+        if (msg.sessionId === sessionId && ownsTitle && typeof msg.title === 'string') {
           const title = sanitizeOscTitle(msg.title);
           if (title && title !== meta.lastTitle) {
             meta.lastTitle = title;

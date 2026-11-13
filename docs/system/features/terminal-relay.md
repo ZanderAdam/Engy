@@ -360,7 +360,7 @@ history table (`terminal_session_history`,
 moment an agent terminal spawns — teardown only stamps `closedAt`, so no crash
 timing loses a session. The browser reports OSC title changes over the terminal
 socket (`{ t: 'title' }`, server-terminated) and the last title becomes the
-row's summary. The new-terminal dropdown's "Resume Session" group
+row's summary. A Claude session ignores these titles and takes its summary from the `Stop` hook, because the shell retitles the terminal to `user@host:path` after Claude exits. The new-terminal dropdown's "Resume Session" group
 (`terminal.listSessionHistory` tRPC query + `session-history-entries.ts`) lists
 closed sessions per repo/worktree — narrowed to the project being viewed, so a
 project's dropdown never offers another project's sessions — and reopens them in
@@ -392,8 +392,8 @@ git dir (`web/src/server/hooks/cwd.ts`). `workingDir` stays the spawn
 identity, so a respawn still lands where the terminal was opened.
 
 `claude --name` is deliberately not passed. It pins the CLI's OSC terminal
-title to a constant, and the daemon's OSC path persists every reported title
-into `lastTitle` — so the name overwrote each hook-derived title on the next
+title to a constant, and the browser shows every reported OSC title as the
+tab's live label — so the name overwrote each hook-derived title on the next
 repaint and froze the label at the scope name.
 
 ## Live session context
@@ -553,7 +553,7 @@ in their title string, e.g. `it('[FR-TERMINAL-010] ...', ...)`, and run
 | FR-TERMINAL-300 | WHILE a session runs an agent CLI, connected as a worker or not, the system SHALL buffer its PTY output in a bounded tail (65536 characters) for status reporting; plain shells SHALL NOT be buffered. |
 | FR-TERMINAL-310 | WHEN spawning a terminal whose command contains the MCP session placeholder (`__ENGY_SESSION__`), the system SHALL substitute the session id before sending the spawn to the daemon and SHALL store the substituted command in `terminalSessionMeta`, so the agent's Engy MCP endpoint is `/mcp/<sessionId>`. |
 | FR-TERMINAL-320 | WHEN building a Claude terminal command without a resume target, the system SHALL include `--session-id __ENGY_SESSION__` so the spawned CLI adopts the terminal's session id (substituted at spawn per FR-TERMINAL-310, including server-originated `terminal_spawn` spawns), making the conversation addressable for later resume. |
-| FR-TERMINAL-330 | WHEN the browser detects an OSC 0/2 title change on a terminal, it SHALL send `{ t: 'title', sessionId, title }` on the terminal socket; the server SHALL sanitize it, store it as `lastTitle` on the session metadata, update the session's history-row summary, and SHALL NOT forward the message to the daemon. |
+| FR-TERMINAL-330 | WHEN the browser detects an OSC 0/2 title change on a terminal, it SHALL send `{ t: 'title', sessionId, title }` on the terminal socket; the server SHALL NOT forward the message to the daemon. Unless the session runs Claude, the server SHALL sanitize the title, store it as `lastTitle` on the session metadata, and update the session's history-row summary. A Claude session SHALL keep the title from its `Stop` hook (FR-TERMINAL-710), so the shell title that replaces Claude's after Claude exits does not become the session's label. |
 | FR-TERMINAL-340 | WHEN an agent terminal session (metadata carries `agentType`) is spawned, the system SHALL upsert a session-history row keyed by the session's agent-CLI session id (`resumedFrom` when the terminal is a resume, else the terminal `sessionId`) carrying agentType, workingDir, scopeLabel, summary (initially `scopeLabel`), workspaceSlug, projectSlug, worktreeBranch, containerMode, and startedAt — so the row exists even if the daemon or machine dies mid-session; WHEN the session is torn down (daemon exit, kill/destroy, or daemon-sync purge) the system SHALL stamp `closedAt` on the row. History SHALL be pruned to the newest 50 rows per workspace; sessions without `agentType` SHALL NOT be recorded. |
 | FR-TERMINAL-350 | WHEN the client queries recent session history for a workspace, the system SHALL return stored rows newest-first, excluding rows whose key matches a currently-live session's `resumedFrom` or `sessionId`, so open terminals never appear as resumable; WHEN the query carries a project slug the returned rows SHALL be limited to that project, and the client SHALL carry the project it is viewing so a project's dropdown never offers another project's sessions. |
 | FR-TERMINAL-360 | WHEN the user activates a resume entry in the new-terminal dropdown, the system SHALL open a new terminal in the history row's original workingDir (and original containerMode) whose command is `claude --resume <session-id>` plus the standard MCP config, permission-mode, and `--add-dir` flags — and without `--session-id` — and SHALL tag the new session's metadata with `resumedFrom: <session-id>`. |

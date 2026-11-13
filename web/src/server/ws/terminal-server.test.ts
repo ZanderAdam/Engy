@@ -1929,8 +1929,27 @@ describe('Terminal WebSocket Server', () => {
       });
     });
 
+    it('[FR-TERMINAL-330] should keep a Claude session title when the shell retitles the terminal after Claude exits', async () => {
+      const { daemonWs, browserWs } = await spawnAgentSession('sess-claude-title');
+      state.terminalSessionMeta.get('sess-claude-title')!.lastTitle = 'Fixed the bug';
+
+      const nextDaemonMsg = waitForMessage(daemonWs);
+      browserWs.send(
+        JSON.stringify({
+          t: 'title',
+          sessionId: 'sess-claude-title',
+          title: 'aleks@host:/tmp/proj',
+        }),
+      );
+      browserWs.send(JSON.stringify({ t: 'i', sessionId: 'sess-claude-title', d: 'x' }));
+      await nextDaemonMsg;
+
+      expect(state.terminalSessionMeta.get('sess-claude-title')?.lastTitle).toBe('Fixed the bug');
+      expect(historyRows()[0].summary).toBe('engy');
+    });
+
     it('[FR-TERMINAL-330] should store a sanitized lastTitle and history summary from a title message', async () => {
-      const { browserWs } = await spawnAgentSession('sess-title');
+      const { browserWs } = await spawnAgentSession('sess-title', { agentType: 'codex' });
 
       browserWs.send(
         JSON.stringify({ t: 'title', sessionId: 'sess-title', title: '  fixing bug\x07 ' }),
