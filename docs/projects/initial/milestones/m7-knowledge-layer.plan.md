@@ -1,6 +1,6 @@
 ---
 title: Knowledge Layer
-status: completed
+status: complete
 ---
 
 # Plan: M7 Knowledge Layer
