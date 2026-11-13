@@ -9,7 +9,7 @@ import { ProjectActivityBadge } from '@/components/projects/project-activity-bad
 import { WorkspaceSwitcher } from './header/workspace-switcher';
 import { ProjectSwitcher } from './header/project-switcher';
 import { OpenTabsPicker } from '@/components/tabs/open-tabs-picker';
-import { HeaderActions } from '@/components/header-actions';
+import { MobileHeaderMenu } from './header/mobile-header-menu';
 import { useOptionalMobileOverlay } from './mobile-overlay-context';
 
 interface WorkspaceLike {
@@ -72,19 +72,19 @@ export function MobileIdentityBar({ workspace, project }: MobileIdentityBarProps
       ref={rowRef}
       className="sticky top-0 z-30 flex h-11 shrink-0 items-center justify-between border-b border-border bg-card px-2"
     >
-      <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-0">
+      <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-0 overflow-hidden">
         {workspace && (
           <>
             <WorkspaceSwitcher currentSlug={workspace.slug}>
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 max-w-[6rem] truncate px-1.5 text-xs text-muted-foreground"
+                className="h-7 min-w-0 max-w-[6rem] shrink px-1.5 text-xs text-muted-foreground"
               >
-                {workspace.name}
+                <span className="truncate">{workspace.name}</span>
               </Button>
             </WorkspaceSwitcher>
-            <span className="text-muted-foreground px-0.5">›</span>
+            <span className="shrink-0 px-0.5 text-muted-foreground">›</span>
           </>
         )}
         {workspace && project && (
@@ -97,22 +97,26 @@ export function MobileIdentityBar({ workspace, project }: MobileIdentityBarProps
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 max-w-[6rem] truncate px-1.5 text-xs text-muted-foreground"
+                className="h-7 min-w-0 max-w-[6rem] shrink px-1.5 text-xs text-muted-foreground"
               >
-                {project.name}
+                <span className="truncate">{project.name}</span>
               </Button>
             </ProjectSwitcher>
-            <ProjectActivityBadge workspaceSlug={workspace.slug} projectSlug={project.slug} />
-            <span className="text-muted-foreground px-0.5">›</span>
+            <ProjectActivityBadge
+              workspaceSlug={workspace.slug}
+              projectSlug={project.slug}
+              className="shrink-0"
+            />
+            <span className="shrink-0 px-0.5 text-muted-foreground">›</span>
           </>
         )}
         <OpenTabsPicker>
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 shrink-0 gap-1 px-1.5 text-sm font-semibold"
+            className="h-7 min-w-0 shrink gap-1 px-1.5 text-sm font-semibold"
           >
-            <span className="truncate">{tabLabel}</span>
+            <span className="min-w-0 truncate">{tabLabel}</span>
             <Badge variant="secondary" className="text-[10px]">
               {tabPosition}
             </Badge>
@@ -122,7 +126,7 @@ export function MobileIdentityBar({ workspace, project }: MobileIdentityBarProps
       </nav>
 
       <div className="flex shrink-0 items-center pl-1">
-        <HeaderActions />
+        <MobileHeaderMenu />
       </div>
     </div>
   );

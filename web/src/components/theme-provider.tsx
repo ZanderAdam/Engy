@@ -11,7 +11,7 @@ import {
 } from 'react';
 import { ThemeProvider as NextThemesProvider, useTheme } from 'next-themes';
 
-type ThemeFlavor = 'default' | 'cyberpunk';
+export type ThemeFlavor = 'default' | 'cyberpunk';
 
 interface ThemeFlavorContextValue {
   flavor: ThemeFlavor;

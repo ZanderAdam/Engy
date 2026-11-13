@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useTheme } from 'next-themes';
-import { useThemeFlavor } from './theme-provider';
+import { useThemeFlavor, type ThemeFlavor } from './theme-provider';
 import { RiSunLine, RiMoonLine, RiPaletteLine } from '@remixicon/react';
 import { Button } from '@/components/ui/button';
 import {
@@ -70,7 +70,7 @@ export function ThemeToggle() {
           <DropdownMenuContent align="end">
             <DropdownMenuRadioGroup
               value={flavor}
-              onValueChange={(v) => setFlavor(v as 'default' | 'cyberpunk')}
+              onValueChange={(v) => setFlavor(v as ThemeFlavor)}
             >
               <DropdownMenuRadioItem value="default">Default</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="cyberpunk">Cyberpunk</DropdownMenuRadioItem>
