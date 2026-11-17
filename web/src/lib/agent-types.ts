@@ -416,14 +416,16 @@ export function getMcpUrl(): string | undefined {
   return `${window.location.origin}/mcp/${MCP_SESSION_PLACEHOLDER}`;
 }
 
+const CLAUDE_PROMPT_ARG = /^claude '(?:[^']|'\\'')*'/;
+const SESSION_ID_FLAG = /--session-id ('(?:[^'\\]|\\.)*'|\S+)/;
+
 /**
- * Rewrites the first occurrence of `--session-id <token>` to `--resume <token>`.
- * Token may be bare or single-quoted; everything else is preserved verbatim.
- * Returns the command unchanged when the flag is absent.
- *
- * Used when respawning a lost PTY — rerunning `claude --session-id X` would
- * fail on a duplicate session id, `--resume X` continues the conversation instead.
+ * Rerunning `claude --session-id X` fails on a duplicate session id, and the
+ * original prompt would land as a new turn in the resumed conversation.
  */
-export function sessionIdFlagToResume(command: string): string {
-  return command.replace(/--session-id ('(?:[^'\\]|\\.)*'|\S+)/, '--resume $1');
+export function toClaudeResumeCommand(command: string): string {
+  const withoutPrompt = command.replace(CLAUDE_PROMPT_ARG, 'claude');
+  const resumed = withoutPrompt.replace(SESSION_ID_FLAG, '--resume $1');
+  if (resumed === withoutPrompt) return command;
+  return resumed;
 }

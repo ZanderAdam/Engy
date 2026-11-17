@@ -11,7 +11,7 @@ import {
   listAgentTypes,
   resolveAgentMode,
   resolveAgentSkills,
-  sessionIdFlagToResume,
+  toClaudeResumeCommand,
   MCP_SESSION_PLACEHOLDER,
 } from './agent-types';
 
@@ -193,7 +193,7 @@ describe('agent types', () => {
         const fresh = buildAgentCommand('claude', {
           mcpUrl: `http://localhost:3123/mcp/${sessionId}`,
         }).replace(`--session-id ${MCP_SESSION_PLACEHOLDER}`, `--session-id ${sessionId}`);
-        const adopted = sessionIdFlagToResume(fresh);
+        const adopted = toClaudeResumeCommand(fresh);
         // hasSessionEndpoint() in terminal-dispatch.ts matches this exact substring.
         expect(adopted).toContain(`/mcp/${sessionId}`);
         expect(adopted).toContain(`http://localhost:3123/hooks/${sessionId}`);
@@ -580,30 +580,49 @@ describe('buildHookSettings', () => {
   });
 });
 
-describe('sessionIdFlagToResume', () => {
+describe('toClaudeResumeCommand', () => {
   it('[FR-TERMINAL-380] should rewrite --session-id to --resume for a bare token', () => {
     expect(
-      sessionIdFlagToResume('claude --permission-mode acceptEdits --session-id __ENGY_SESSION__'),
+      toClaudeResumeCommand('claude --permission-mode acceptEdits --session-id __ENGY_SESSION__'),
     ).toBe('claude --permission-mode acceptEdits --resume __ENGY_SESSION__');
   });
 
   it('[FR-TERMINAL-380] should rewrite --session-id to --resume for a single-quoted token', () => {
     expect(
-      sessionIdFlagToResume("claude --session-id 'some-uuid-123' --permission-mode auto"),
+      toClaudeResumeCommand("claude --session-id 'some-uuid-123' --permission-mode auto"),
     ).toBe("claude --resume 'some-uuid-123' --permission-mode auto");
   });
 
   it('[FR-TERMINAL-380] should return the command unchanged when --session-id is absent', () => {
     const cmd = 'claude --resume abc-123 --permission-mode acceptEdits';
-    expect(sessionIdFlagToResume(cmd)).toBe(cmd);
+    expect(toClaudeResumeCommand(cmd)).toBe(cmd);
   });
 
-  it('[FR-TERMINAL-380] should preserve all surrounding flags verbatim', () => {
-    const result = sessionIdFlagToResume(
+  it('[FR-TERMINAL-380] should drop the prompt and keep all other flags verbatim', () => {
+    const result = toClaudeResumeCommand(
       "claude 'my prompt' --add-dir '/repo' --permission-mode plan --session-id my-id",
     );
-    expect(result).toBe(
-      "claude 'my prompt' --add-dir '/repo' --permission-mode plan --resume my-id",
-    );
+    expect(result).toBe("claude --add-dir '/repo' --permission-mode plan --resume my-id");
+  });
+
+  it('[FR-TERMINAL-380] should drop a prompt that contains quotes and keep the system prompt', () => {
+    const fresh = buildAgentCommand('claude', {
+      prompt: "/engy:plan task 'it''s'\n--session-id fake '",
+      systemPrompt: "Engy context: don't resend",
+      additionalDirs: ['/docs'],
+    }).replace(`--session-id ${MCP_SESSION_PLACEHOLDER}`, '--session-id real-id');
+
+    const resumed = toClaudeResumeCommand(fresh);
+
+    expect(resumed).not.toContain('/engy:plan');
+    expect(resumed).toMatch(/^claude --add-dir /);
+    expect(resumed).toContain(`--append-system-prompt 'Engy context: don'\\''t resend'`);
+    expect(resumed).toContain('--resume real-id');
+    expect(resumed).not.toContain('--session-id');
+  });
+
+  it('[FR-TERMINAL-380] should keep the prompt when --session-id is absent', () => {
+    const cmd = "claude 'my prompt' --permission-mode plan";
+    expect(toClaudeResumeCommand(cmd)).toBe(cmd);
   });
 });

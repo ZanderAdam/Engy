@@ -33,7 +33,7 @@ import {
 } from '../terminal-dispatch';
 import {
   MCP_SESSION_PLACEHOLDER,
-  sessionIdFlagToResume,
+  toClaudeResumeCommand,
 } from '@/lib/agent-types';
 import { sanitizeOscTitle } from '@/lib/osc-title';
 import { clearLiveTargetsForSession } from '../live-comment-targets';
@@ -144,8 +144,7 @@ function sendTerminalError(ws: WebSocket, message: string): void {
 
 /**
  * Spawn command that brings a session the daemon no longer has back to life:
- * the stored command with `--session-id` rewritten to `--resume` (rerunning a
- * duplicate id would fail), at the last known size, with the container/coder
+ * the stored command in its resume form, at the last known size, with the container/coder
  * config re-read from the DB so isolated sessions come back isolated.
  */
 function buildRespawnCmd(sessionId: string, meta: TerminalSessionMeta): TerminalSpawnCmd {
@@ -153,7 +152,7 @@ function buildRespawnCmd(sessionId: string, meta: TerminalSessionMeta): Terminal
     t: 'spawn',
     sessionId,
     workingDir: meta.workingDir,
-    command: meta.command && sessionIdFlagToResume(meta.command),
+    command: meta.command && toClaudeResumeCommand(meta.command),
     cols: meta.cols,
     rows: meta.rows,
     scopeType: meta.scopeType,

@@ -2043,7 +2043,7 @@ describe('Terminal WebSocket Server', () => {
       expect(historyRows()[0].closedAt).toBeNull();
     });
 
-    it('[FR-TERMINAL-380] should rewrite --session-id to --resume when respawning a stale session', async () => {
+    it('[FR-TERMINAL-380] should resume without resending the prompt when respawning a stale session', async () => {
       const daemonWs = await connectDaemonRelay(port);
       const spawnPromise = waitForMessage(daemonWs);
 
@@ -2051,7 +2051,8 @@ describe('Terminal WebSocket Server', () => {
         sessionId: 'sess-respawn-resume',
         workingDir: '/tmp/proj',
         agentType: 'claude',
-        command: 'claude --permission-mode acceptEdits --session-id sess-respawn-resume',
+        command:
+          "claude '/engy:implement task 7' --append-system-prompt 'ctx' --permission-mode acceptEdits --session-id sess-respawn-resume",
       });
       await spawnPromise;
 
@@ -2064,8 +2065,9 @@ describe('Terminal WebSocket Server', () => {
 
       const respawn = JSON.parse(await respawnPromise);
       expect(respawn.t).toBe('spawn');
-      expect(respawn.command).toContain('--resume sess-respawn-resume');
-      expect(respawn.command).not.toContain('--session-id');
+      expect(respawn.command).toBe(
+        "claude --append-system-prompt 'ctx' --permission-mode acceptEdits --resume sess-respawn-resume",
+      );
     });
 
     it('[FR-TERMINAL-870] should reset the tracked directory when respawning, so the new PTY reports its own branch', async () => {
