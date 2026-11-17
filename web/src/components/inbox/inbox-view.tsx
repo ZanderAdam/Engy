@@ -607,13 +607,11 @@ export function InboxView({ scope }: InboxViewProps) {
       {previewPane}
     </>
   );
-  if (reviewPane && isNarrow) {
-    panes = reviewPane;
-  } else if (reviewPane) {
+  if (reviewPane) {
     panes = (
       <ThreePanelLayout
         className="min-w-0 flex-1"
-        left={LIST_SIDEBAR_CONFIG}
+        left={isNarrow ? undefined : LIST_SIDEBAR_CONFIG}
         leftShortcut="toggleInboxList"
         leftCollapsed={listCollapsed}
         onLeftCollapsedChange={setListCollapsed}

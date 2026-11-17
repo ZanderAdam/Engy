@@ -82,24 +82,26 @@ export function usePanelResize(options: UsePanelResizeOptions): UsePanelResizeRe
   const leftRequestedRef = useRef(leftWidth);
   const rightRequestedRef = useRef(rightWidth);
 
+  const hasLeftConfig = !!options.left;
+  const hasRightConfig = !!options.right;
+
+  // Keyed on presence, not identity: a config can be absent at mount (narrow or
+  // mobile container) and appear later, and must still restore its stored width.
   useEffect(() => {
-    if (options.left) {
-      const stored = readStoredWidth(options.left);
-      if (stored !== null) {
-        leftRequestedRef.current = stored;
-        setLeftWidth(stored);
-      }
-    }
-    if (options.right) {
-      const stored = readStoredWidth(options.right);
-      if (stored !== null) {
-        rightRequestedRef.current = stored;
-        setRightWidth(stored);
-      }
-    }
-    // Only run on mount
+    if (!options.left) return;
+    const width = readStoredWidth(options.left) ?? options.left.defaultWidth;
+    leftRequestedRef.current = width;
+    setLeftWidth(width);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hasLeftConfig]);
+
+  useEffect(() => {
+    if (!options.right) return;
+    const width = readStoredWidth(options.right) ?? options.right.defaultWidth;
+    rightRequestedRef.current = width;
+    setRightWidth(width);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasRightConfig]);
 
   const leftWidthRef = useRef(leftWidth);
   leftWidthRef.current = leftWidth;
