@@ -15,10 +15,7 @@ export interface ConfigGeneratorOptions {
 export function rewriteLocalhostUrls(envVars: Record<string, string>): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(envVars)) {
-    result[key] = value.replace(
-      /^(https?:\/\/)localhost(:\d+.*)$/,
-      '$1host.docker.internal$2',
-    );
+    result[key] = value.replace(/^(https?:\/\/)localhost(:\d+.*)$/, '$1host.docker.internal$2');
   }
   return result;
 }
@@ -51,6 +48,8 @@ export function devcontainerJsonContent(options: ConfigGeneratorOptions): object
   const mounts = [
     ...repoMounts,
     'source=${localEnv:HOME}/.claude,target=/home/node/.claude,type=bind',
+    // installed_plugins.json records each plugin's installPath as an absolute host path.
+    'source=${localEnv:HOME}/.claude/plugins,target=${localEnv:HOME}/.claude/plugins,type=bind,readonly',
     'source=${localEnv:HOME}/.claude.json,target=/tmp/host-claude.json,type=bind,readonly',
   ];
 
@@ -223,8 +222,7 @@ fi
     ports.length > 0
       ? ports
           .map(
-            (p) =>
-              `    ip6tables -A OUTPUT -p tcp -d "$DOCKER_HOST_IPV6" --dport ${p} -j ACCEPT`,
+            (p) => `    ip6tables -A OUTPUT -p tcp -d "$DOCKER_HOST_IPV6" --dport ${p} -j ACCEPT`,
           )
           .join('\n') + '\n'
       : '';

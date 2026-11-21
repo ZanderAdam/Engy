@@ -85,7 +85,7 @@ describe('handleMemoryCaptureIngest', () => {
     expect(rows[0].tags).toEqual(['x', MEMORY_CAPTURE_ORIGIN_TAG]);
   });
 
-  it('[FR-MEMORY-300] should fall back to session history once live meta is gone (SessionEnd)', async () => {
+  it('[FR-MEMORY-300] should fall back to session history once live meta is gone', async () => {
     const ws = await caller.workspace.create({ name: 'History Fallback WS' });
     // Simulates the terminal's PTY having already exited: recordSessionStart
     // ran at spawn time, but nothing lives in terminalSessionMeta anymore.

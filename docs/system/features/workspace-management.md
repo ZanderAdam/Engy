@@ -150,9 +150,8 @@ Effects:
   own git worktree. It is workspace-wide, not per agent, and lives at the top
   of the Agents tab.
 - **Memory capture** (claude entry's `memoryCapture`, off by default) — gates
-  whether `buildHookSettings` registers the `PreCompact`/`SessionEnd`
-  memory-capture command hooks at all (omitted from the `--settings` blob
-  entirely when off, not merely a no-op — each firing is a billed model
+  whether the spawn command sets `ENGY_MEMORY_CAPTURE=1`, which turns on the
+  session mod's `PreCompact` distillation (each firing is a billed model
   call). Rides the existing `agentSettings` blob rather than a new workspace
   column so it reaches every `buildAgentCommand` call site the same way
   `mode`/`planSkill` already do, with no extra plumbing.

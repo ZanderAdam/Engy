@@ -131,8 +131,23 @@ describe('config-generator', () => {
       const json = devcontainerJsonContent(options) as Record<string, unknown>;
       const mounts = json.mounts as string[];
 
-      expect(mounts).toContain('source=/home/user/repos/repo1,target=/home/user/repos/repo1,type=bind');
-      expect(mounts).toContain('source=/home/user/repos/repo2,target=/home/user/repos/repo2,type=bind');
+      expect(mounts).toContain(
+        'source=/home/user/repos/repo1,target=/home/user/repos/repo1,type=bind',
+      );
+      expect(mounts).toContain(
+        'source=/home/user/repos/repo2,target=/home/user/repos/repo2,type=bind',
+      );
+    });
+
+    it('[FR-CONTAINER-150] should mount host plugins read-only at their host path', () => {
+      const json = devcontainerJsonContent({ docsDir: '/home/user/docs', repos: [] }) as Record<
+        string,
+        unknown
+      >;
+
+      expect(json.mounts).toContain(
+        'source=${localEnv:HOME}/.claude/plugins,target=${localEnv:HOME}/.claude/plugins,type=bind,readonly',
+      );
     });
 
     it('should include ~/.claude bind mount', () => {
@@ -361,9 +376,7 @@ describe('config-generator', () => {
       const content = firewallScriptContent();
 
       expect(content).toContain('DOCKER_HOST_IPV6=$(getent hosts host.docker.internal');
-      expect(content).toContain(
-        'ip6tables -A OUTPUT -j REJECT --reject-with icmp6-adm-prohibited',
-      );
+      expect(content).toContain('ip6tables -A OUTPUT -j REJECT --reject-with icmp6-adm-prohibited');
       expect(content).toContain('ip6tables -A INPUT -j DROP');
     });
 

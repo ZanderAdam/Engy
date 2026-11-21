@@ -362,7 +362,7 @@ describe('MCP terminal tools', () => {
         scopeLabel: 'project: default',
         workingDir: '/repo',
         command: agentType
-          ? `${agentType} --mcp-config '{"mcpServers":{"Engy":{"type":"http","url":"http://localhost:5555/mcp/${sessionId}"}}}'`
+          ? `ENGY_MCP_URL='http://localhost:5555/mcp/${sessionId}' ${agentType}`
           : undefined,
         agentType,
         groupKey: 'group-1',

@@ -8,10 +8,7 @@ import type { TerminalSessionMeta } from '../trpc/context';
 import type { HookPayload } from './types';
 
 interface SessionStartHookResult {
-  hookSpecificOutput?: {
-    hookEventName: 'SessionStart';
-    additionalContext: string;
-  };
+  additionalContext?: string;
 }
 
 export const SESSION_CONTEXT_CHAR_BUDGET = 4000;
@@ -23,13 +20,6 @@ const TASK_STATUS_RANK: Record<string, number> = { in_progress: 0, review: 1, to
 const MEMORY_SEARCH_LIMIT = 3;
 const MEMORY_SEARCH_TIMEOUT_MS = 3000;
 
-/**
- * SessionStart claude 2.1.251 drops `type: "http"` hooks, so this event's
- * transport is a `command` hook (see agent-types.ts) that curls this endpoint
- * and prints the response to stdout — verified by probe to require this exact
- * `hookSpecificOutput`-wrapped shape; the flat `{ additionalContext }` shape
- * the other handlers use is silently ignored by the CLI for SessionStart.
- */
 export async function buildSessionStartContext(
   payload: HookPayload,
   meta: TerminalSessionMeta,
@@ -51,7 +41,7 @@ export async function buildSessionStartContext(
   }
 
   const block = boundToCharBudget(sections.join('\n\n'), SESSION_CONTEXT_CHAR_BUDGET);
-  return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: block } };
+  return { additionalContext: block };
 }
 
 function renderHeader(meta: TerminalSessionMeta, projectName: string): string {

@@ -1,11 +1,5 @@
 interface TerminalActivityParsed {
   titles: string[];
-  // OSC 9;4;<state>;<progress> progress-state sequences found in this chunk,
-  // in order. `'set'` is state 4 (attention/paused), `'clear'` is state 0 —
-  // the two states title.ts's hook handlers emit. Other states (1 normal
-  // progress, 2 error, 3 indeterminate) aren't emitted by Engy and are
-  // ignored here, same as any other unrecognised OSC param.
-  attention: Array<'set' | 'clear'>;
 }
 
 const BEL = '\x07';
@@ -32,7 +26,6 @@ export function createTerminalActivityParser(): TerminalActivityParser {
       pending = '';
 
       const titles: string[] = [];
-      const attention: Array<'set' | 'clear'> = [];
       let i = 0;
 
       while (i < data.length) {
@@ -68,17 +61,13 @@ export function createTerminalActivityParser(): TerminalActivityParser {
           const oscParam = body.slice(0, semiPos);
           if (oscParam === '0' || oscParam === '2') {
             titles.push(body.slice(semiPos + 1));
-          } else if (oscParam === '9') {
-            const [progressParam, state] = body.slice(semiPos + 1).split(';');
-            if (progressParam === '4' && state === '4') attention.push('set');
-            else if (progressParam === '4' && state === '0') attention.push('clear');
           }
         }
 
         i = endIdx + terminatorLen;
       }
 
-      return { titles, attention };
+      return { titles };
     },
   };
 }

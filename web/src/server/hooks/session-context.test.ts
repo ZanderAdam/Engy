@@ -74,8 +74,7 @@ describe('session-context', () => {
 
       const result = await buildSessionStartContext({ hook_event_name: 'SessionStart' }, meta);
 
-      expect(result.hookSpecificOutput?.hookEventName).toBe('SessionStart');
-      const context = result.hookSpecificOutput?.additionalContext ?? '';
+      const context = result.additionalContext ?? '';
       expect(context).toContain('Context Project');
       expect(context).toContain(ws.slug);
       expect(context).toContain('aadamovic/context-test');
@@ -98,7 +97,7 @@ describe('session-context', () => {
         baseMeta({ workspaceSlug: ws.slug, projectId: project.id, projectSlug: project.slug }),
       );
 
-      expect(result.hookSpecificOutput?.additionalContext).toContain('None in progress or blocked');
+      expect(result.additionalContext).toContain('None in progress or blocked');
     });
   });
 
@@ -123,7 +122,7 @@ describe('session-context', () => {
         ),
       );
 
-      const contexts = results.map((r) => r.hookSpecificOutput?.additionalContext);
+      const contexts = results.map((r) => r.additionalContext);
       for (const context of contexts) {
         expect(context).toBe(contexts[0]);
       }
@@ -146,7 +145,7 @@ describe('session-context', () => {
         { hook_event_name: 'SessionStart' },
         baseMeta({ workspaceSlug: ws.slug, projectId: project.id, projectSlug: project.slug }),
       );
-      const context = result.hookSpecificOutput?.additionalContext ?? '';
+      const context = result.additionalContext ?? '';
 
       expect(context.length).toBeLessThanOrEqual(SESSION_CONTEXT_CHAR_BUDGET);
       expect(context).toContain('truncated');
@@ -164,7 +163,7 @@ describe('session-context', () => {
         { hook_event_name: 'SessionStart' },
         baseMeta({ workspaceSlug: ws.slug, projectId: project.id, projectSlug: project.slug }),
       );
-      expect(result.hookSpecificOutput?.additionalContext).not.toContain('truncated');
+      expect(result.additionalContext).not.toContain('truncated');
     });
   });
 
@@ -201,7 +200,7 @@ describe('session-context', () => {
         { hook_event_name: 'SessionStart' },
         baseMeta({ workspaceSlug: ws.slug, projectId: project.id, projectSlug: project.slug }),
       );
-      const context = result.hookSpecificOutput?.additionalContext ?? '';
+      const context = result.additionalContext ?? '';
 
       expect(searchSpy).toHaveBeenCalledWith(
         expect.objectContaining({ slug: ws.slug }),
@@ -230,7 +229,7 @@ describe('session-context', () => {
         { hook_event_name: 'SessionStart' },
         baseMeta({ workspaceSlug: ws.slug, projectId: project.id, projectSlug: project.slug }),
       );
-      const context = result.hookSpecificOutput?.additionalContext ?? '';
+      const context = result.additionalContext ?? '';
 
       expect(context).toContain('Still shown task');
       expect(context).not.toContain('Related memory');
@@ -263,7 +262,7 @@ describe('session-context', () => {
         { hook_event_name: 'SessionStart' },
         baseMeta({ workspaceSlug: ws.slug, projectId: project.id, projectSlug: project.slug }),
       );
-      const context = result.hookSpecificOutput?.additionalContext ?? '';
+      const context = result.additionalContext ?? '';
 
       expect(context.length).toBeLessThanOrEqual(SESSION_CONTEXT_CHAR_BUDGET);
     });

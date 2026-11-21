@@ -63,12 +63,14 @@ function parseDistillation(raw: unknown): CaptureEntry[] {
   const memories = isRecord(parsed) ? parsed.memories : undefined;
   if (!Array.isArray(memories)) return [];
 
-  const valid = memories.filter(isRecord).filter(
-    (m): m is Record<string, unknown> & { content: string } =>
-      typeof m.content === 'string' &&
-      m.content.length > 0 &&
-      m.content.length <= MEMORY_CAPTURE_MAX_CONTENT_LENGTH,
-  );
+  const valid = memories
+    .filter(isRecord)
+    .filter(
+      (m): m is Record<string, unknown> & { content: string } =>
+        typeof m.content === 'string' &&
+        m.content.length > 0 &&
+        m.content.length <= MEMORY_CAPTURE_MAX_CONTENT_LENGTH,
+    );
 
   return valid.slice(0, MEMORY_CAPTURE_MAX_ITEMS).map((m) => ({
     content: m.content,
@@ -78,19 +80,14 @@ function parseDistillation(raw: unknown): CaptureEntry[] {
 }
 
 /**
- * Ingests the shell script's follow-up POST (`hooks/memory.ts`). Not a
- * `HookHandler` — it is dispatched from `handleHookRequest` before that
- * function's meta-liveness gate, because by the time this arrives (up to
- * ~20s after PreCompact or SessionEnd) the originating terminal may already
- * be gone: SessionEnd's parent PTY exits almost immediately once the hook
- * returns, which deletes `terminalSessionMeta` for that session id long
- * before this background job finishes. Live meta is tried first (the common
- * case — PreCompact fires mid-session); `getHistoryWorkspaceSlug` covers
- * SessionEnd for first-run sessions once meta is gone. A resumed session
- * whose meta is already gone has no resolvable workspace (its history row is
- * keyed by the prior agent-CLI conversation id, not this terminal session
- * id) and is dropped, matching FR-MEMORY-250's "unknown session → insert
- * nothing" precedent.
+ * Ingests the session mod's PreCompact distillation POST. Not a `HookHandler`
+ * — it is dispatched from `handleHookRequest` before that function's
+ * meta-liveness gate, so a capture that lands after the session's meta is
+ * gone still reaches its workspace through `getHistoryWorkspaceSlug`. A
+ * resumed session whose meta is already gone has no resolvable workspace (its
+ * history row is keyed by the prior agent-CLI conversation id, not this
+ * terminal session id) and is dropped, matching FR-MEMORY-250's "unknown
+ * session → insert nothing" precedent.
  */
 export function handleMemoryCaptureIngest(
   state: Pick<AppState, 'terminalSessionMeta'>,

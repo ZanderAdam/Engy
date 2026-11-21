@@ -59,19 +59,6 @@ function postHook(
   }).then(async (res) => ({ status: res.status, json: await res.json().catch(() => undefined) }));
 }
 
-function postHookWithQuery(
-  port: number,
-  sessionId: string,
-  query: string,
-  body: unknown,
-): Promise<{ status: number; json: unknown }> {
-  return fetch(`http://127.0.0.1:${port}/hooks/${sessionId}?${query}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  }).then(async (res) => ({ status: res.status, json: await res.json().catch(() => undefined) }));
-}
-
 describe('hooks/index', () => {
   describe('isHookPath', () => {
     it('matches /hooks/<sessionId> and rejects everything else', () => {
@@ -99,48 +86,7 @@ describe('hooks/index', () => {
     });
   });
 
-  describe('dispatchHookEvent (merge rule)', () => {
-    it('lets a later non-empty field override an earlier one, field by field', () => {
-      const first: HookHandler = () => ({ additionalContext: 'from-first' });
-      const second: HookHandler = () => ({});
-      const third: HookHandler = () => ({ additionalContext: 'from-third' });
-      const result = dispatchHookEvent(
-        [first, second, third],
-        { hook_event_name: 'SessionStart' },
-        baseMeta(),
-        createAppState(),
-        'sess-dispatch',
-      );
-      expect(result.additionalContext).toBe('from-third');
-    });
-
-    it('does not let an empty result clear a field set by an earlier handler', () => {
-      const first: HookHandler = () => ({ terminalSequence: 'seq-1' });
-      const second: HookHandler = () => ({});
-      const result = dispatchHookEvent(
-        [first, second],
-        { hook_event_name: 'Stop' },
-        baseMeta(),
-        createAppState(),
-        'sess-dispatch',
-      );
-      expect(result.terminalSequence).toBe('seq-1');
-    });
-
-    it('throws when a second handler also produces terminalSequence', () => {
-      const first: HookHandler = () => ({ terminalSequence: 'seq-1' });
-      const second: HookHandler = () => ({ terminalSequence: 'seq-2' });
-      expect(() =>
-        dispatchHookEvent(
-          [first, second],
-          { hook_event_name: 'Stop' },
-          baseMeta(),
-          createAppState(),
-          'sess-dispatch',
-        ),
-      ).toThrow(/at most one/i);
-    });
-
+  describe('dispatchHookEvent', () => {
     it('passes the resolved sessionId through to each handler', () => {
       const seen: string[] = [];
       const handler: HookHandler = (_payload, _meta, _state, sessionId) => {
@@ -212,26 +158,18 @@ describe('hooks/index', () => {
       expect(order).toEqual(['first', 'second']);
     });
 
-    it('[FR-TERMINAL-560] merges partial results from multiple handlers into the response body', async () => {
-      const sessionId = 'sess-merge';
+    it('[FR-TERMINAL-550] returns 500 when a handler throws', async () => {
+      const sessionId = 'sess-throwing-handler';
       ctx.state.terminalSessionMeta.set(sessionId, baseMeta());
       const registry = buildHookRegistry([
-        { event: 'Stop', handler: () => ({ terminalSequence: 'seq-only' }) },
-        { event: 'Stop', handler: () => ({ additionalContext: 'ctx-only' }) },
+        {
+          event: 'Stop',
+          handler: () => {
+            throw new Error('boom');
+          },
+        },
       ]);
-      ({ server, port } = await startServer(ctx.state, registry));
-      const { status, json } = await postHook(port, sessionId, { hook_event_name: 'Stop' });
-      expect(status).toBe(200);
-      expect(json).toEqual({ terminalSequence: 'seq-only', additionalContext: 'ctx-only' });
-    });
-
-    it('[FR-TERMINAL-560] fails when two handlers on one event both produce terminalSequence', async () => {
-      const sessionId = 'sess-dupe-sequence';
-      ctx.state.terminalSessionMeta.set(sessionId, baseMeta());
-      const registry = buildHookRegistry([
-        { event: 'Stop', handler: () => ({ terminalSequence: 'seq-1' }) },
-        { event: 'Stop', handler: () => ({ terminalSequence: 'seq-2' }) },
-      ]);
+      vi.spyOn(console, 'error').mockImplementation(() => {});
       ({ server, port } = await startServer(ctx.state, registry));
       const { status } = await postHook(port, sessionId, { hook_event_name: 'Stop' });
       expect(status).toBe(500);
@@ -319,73 +257,6 @@ describe('hooks/index', () => {
       vi.mocked(console.warn).mockRestore();
     });
 
-    describe('notification_type query-parameter fallback', () => {
-      it('merges ?notification_type= into the payload when the body omits it', async () => {
-        const sessionId = 'sess-query-type';
-        ctx.state.terminalSessionMeta.set(sessionId, baseMeta());
-        let seenType: unknown;
-        const registry = buildHookRegistry([
-          {
-            event: 'Notification',
-            handler: (payload) => {
-              seenType = payload.notification_type;
-            },
-          },
-        ]);
-        ({ server, port } = await startServer(ctx.state, registry));
-
-        await postHookWithQuery(port, sessionId, 'notification_type=permission_prompt', {
-          hook_event_name: 'Notification',
-        });
-
-        expect(seenType).toBe('permission_prompt');
-      });
-
-      it('prefers the body field over the query parameter when both are present', async () => {
-        const sessionId = 'sess-query-type-body-wins';
-        ctx.state.terminalSessionMeta.set(sessionId, baseMeta());
-        let seenType: unknown;
-        const registry = buildHookRegistry([
-          {
-            event: 'Notification',
-            handler: (payload) => {
-              seenType = payload.notification_type;
-            },
-          },
-        ]);
-        ({ server, port } = await startServer(ctx.state, registry));
-
-        await postHookWithQuery(port, sessionId, 'notification_type=idle_prompt', {
-          hook_event_name: 'Notification',
-          notification_type: 'permission_prompt',
-        });
-
-        expect(seenType).toBe('permission_prompt');
-      });
-
-      it('leaves notification_type unset when neither body nor query supplies it', async () => {
-        const sessionId = 'sess-query-type-absent';
-        ctx.state.terminalSessionMeta.set(sessionId, baseMeta());
-        let seenType: unknown = 'unset-sentinel';
-        let called = false;
-        const registry = buildHookRegistry([
-          {
-            event: 'Notification',
-            handler: (payload) => {
-              called = true;
-              seenType = payload.notification_type;
-            },
-          },
-        ]);
-        ({ server, port } = await startServer(ctx.state, registry));
-
-        await postHook(port, sessionId, { hook_event_name: 'Notification' });
-
-        expect(called).toBe(true);
-        expect(seenType).toBeUndefined();
-      });
-    });
-
     describe('SessionStart special case', () => {
       it('[FR-TERMINAL-640] returns {} for a session with no project binding', async () => {
         const sessionId = 'sess-session-start-unbound';
@@ -401,7 +272,7 @@ describe('hooks/index', () => {
         expect(json).toEqual({});
       });
 
-      it('returns the nested hookSpecificOutput shape for a project-bound session', async () => {
+      it('[FR-TERMINAL-640] returns the additionalContext for a project-bound session', async () => {
         const caller = appRouter.createCaller({ state: ctx.state });
         const ws = await caller.workspace.create({ name: 'Hook Router WS' });
         const project = await caller.project.create({
@@ -422,13 +293,28 @@ describe('hooks/index', () => {
         });
 
         expect(status).toBe(200);
-        expect(json).toMatchObject({
-          hookSpecificOutput: { hookEventName: 'SessionStart' },
+        expect((json as { additionalContext: string }).additionalContext).toContain(
+          'Hook Router Project',
+        );
+      });
+    });
+
+    describe('CwdChanged', () => {
+      it('[FR-TERMINAL-870] records the new cwd through the real registry', async () => {
+        const sessionId = 'sess-cwd-changed';
+        const meta = baseMeta();
+        ctx.state.terminalSessionMeta.set(sessionId, meta);
+        ({ server, port } = await startServer(ctx.state));
+
+        const { status } = await postHook(port, sessionId, {
+          hook_event_name: 'CwdChanged',
+          cwd: '/tmp/engy-test',
+          old_cwd: '/tmp/engy-test',
+          new_cwd: '/tmp/engy-test/.claude/worktrees/feature',
         });
-        expect(
-          (json as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput
-            .additionalContext,
-        ).toContain('Hook Router Project');
+
+        expect(status).toBe(200);
+        expect(meta.agentCwd).toBe('/tmp/engy-test/.claude/worktrees/feature');
       });
     });
 
@@ -450,48 +336,6 @@ describe('hooks/index', () => {
         expect(HOOK_HANDLERS.Stop.indexOf(settleDispatchOnStop)).toBeLessThan(
           HOOK_HANDLERS.Stop.indexOf(handleStopActivity),
         );
-      });
-    });
-
-    describe('[Part 3] HOOK_HANDLER_REGISTRATIONS satisfies the terminalSequence invariant', () => {
-      it('Stop fires every registered handler without a duplicate terminalSequence producer', async () => {
-        const sessionId = 'sess-invariant-stop';
-        ctx.state.terminalSessionMeta.set(sessionId, baseMeta({ needsAttention: true }));
-        ({ server, port } = await startServer(ctx.state, HOOK_HANDLERS));
-
-        const { status } = await postHook(port, sessionId, {
-          hook_event_name: 'Stop',
-          prompt_id: 'p1',
-          last_assistant_message: 'done',
-        });
-
-        expect(status).toBe(200);
-      });
-
-      it('UserPromptSubmit fires every registered handler without a duplicate terminalSequence producer', async () => {
-        const sessionId = 'sess-invariant-ups';
-        ctx.state.terminalSessionMeta.set(sessionId, baseMeta({ needsAttention: true }));
-        ({ server, port } = await startServer(ctx.state, HOOK_HANDLERS));
-
-        const { status } = await postHook(port, sessionId, {
-          hook_event_name: 'UserPromptSubmit',
-          prompt_id: 'p1',
-        });
-
-        expect(status).toBe(200);
-      });
-
-      it('Notification fires every registered handler without a duplicate terminalSequence producer', async () => {
-        const sessionId = 'sess-invariant-notification';
-        ctx.state.terminalSessionMeta.set(sessionId, baseMeta());
-        ({ server, port } = await startServer(ctx.state, HOOK_HANDLERS));
-
-        const { status } = await postHook(port, sessionId, {
-          hook_event_name: 'Notification',
-          notification_type: 'permission_prompt',
-        });
-
-        expect(status).toBe(200);
       });
     });
   });

@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "Engy": { "type": "http", "url": "${ENGY_MCP_URL:-http://localhost:3000/mcp}" }
+  }
+}

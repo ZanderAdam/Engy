@@ -10,11 +10,6 @@ export function isSubagentEvent(payload: HookPayload): boolean {
   return payload.agent_id != null;
 }
 
-// Unconfirmed whether the CLI actually sends this — never captured in TG1's
-// probe. `handleHookRequest` merges a same-named `?notification_type=` query
-// parameter (per-type matcher URLs) into the payload before dispatch when the
-// body omits it, so this reads uniformly from `payload` either way. An
-// unrecognised or absent type means "no state change", never a guess.
 export function resolveNotificationType(payload: HookPayload): string | undefined {
   const type = payload.notification_type;
   return typeof type === 'string' && type ? type : undefined;

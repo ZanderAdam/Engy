@@ -54,7 +54,7 @@ describe('shell utilities', () => {
       });
       expect(result.startsWith(ENGY_ORIENTATION)).toBe(true);
       expect(result).toContain('running inside Engy');
-      expect(result).toContain('mcp__Engy__*');
+      expect(result).toContain('mcp__plugin_engy_Engy__*');
     });
 
     it('should instruct the agent to capture durable learnings via createFleetingMemory', () => {

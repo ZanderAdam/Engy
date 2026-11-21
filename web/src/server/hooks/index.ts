@@ -15,7 +15,7 @@ import { buildSessionStartContext } from './session-context';
 import { handleSubagentStart, handleSubagentStop } from './subagent';
 import { handleStopBrief } from './brief';
 import { handleClearAttention, handleNotificationAttention, handleStopTitle } from './title';
-import type { HookHandler, HookPayload, HookRegistry, HookResult } from './types';
+import type { HookHandler, HookPayload, HookRegistry } from './types';
 
 /**
  * Every module's hook handler, in one reviewable list, grouped into a
@@ -27,13 +27,11 @@ import type { HookHandler, HookPayload, HookRegistry, HookResult } from './types
  * make "the worker's outstanding delivered dispatch" ambiguous for the next
  * delivery. `handleStopActivity` is therefore last on `Stop`.
  *
- * `PreCompact` and `SessionEnd` are intentionally absent — `hooks/memory.ts`
- * owns their entire lifecycle out of band (see that file's top comment).
- * `SessionStart` never appears here: it needs an async, differently-shaped
- * response and is handled as a special case in `handleHookRequest` instead
- * of going through this registry. The synthetic `MemoryCapture` follow-up
- * `hooks/memory.ts` POSTs is also a special case, dispatched even earlier —
- * see `handleHookRequest`'s comment on `MEMORY_CAPTURE_HOOK_EVENT`.
+ * `SessionStart` never appears here: it needs an async response and is
+ * handled as a special case in `handleHookRequest` instead of going through
+ * this registry. The synthetic `MemoryCapture` event the session mod POSTs at
+ * `PreCompact` is also a special case, dispatched even earlier — see
+ * `handleHookRequest`'s comment on `MEMORY_CAPTURE_HOOK_EVENT`.
  */
 // Exported so a test can assert the Stop-ordering invariant above against
 // the actual registry, not a synthetic stand-in array.
@@ -51,6 +49,8 @@ export const HOOK_HANDLER_REGISTRATIONS: Array<{ event: string; handler: HookHan
   { event: 'UserPromptSubmit', handler: handleClearAttention },
   { event: 'UserPromptSubmit', handler: clearFailureOnUserPromptSubmit },
   { event: 'UserPromptSubmit', handler: handleUserPromptSubmitActivity },
+
+  { event: 'CwdChanged', handler: handleCwdChange },
 
   { event: 'Notification', handler: handleNotificationAttention },
   { event: 'Notification', handler: handleNotificationActivity },
@@ -102,43 +102,16 @@ export function _unknownSessionLogSize(): number {
   return loggedUnknownSessions.size;
 }
 
-/**
- * Merge multiple handlers' partial results for one event: later non-empty
- * fields win per field. `terminalSequence` is a hard invariant, not a
- * convention — at most one handler per event may produce it, since two
- * handlers racing to write the terminal's OSC chrome has no sane "merge".
- */
 export function dispatchHookEvent(
   handlers: HookHandler[],
   payload: HookPayload,
   meta: TerminalSessionMeta,
   state: AppState,
   sessionId: string,
-): HookResult {
-  const merged: HookResult = {};
-  let terminalSequenceSet = false;
-
+): void {
   for (const handler of handlers) {
-    const result = handler(payload, meta, state, sessionId);
-    if (!result) continue;
-
-    for (const [key, value] of Object.entries(result) as Array<
-      [keyof HookResult, string | undefined]
-    >) {
-      if (value === undefined || value === null || value === '') continue;
-      if (key === 'terminalSequence') {
-        if (terminalSequenceSet) {
-          throw new Error(
-            `[hooks] Multiple handlers returned terminalSequence for '${payload.hook_event_name}' — at most one is allowed`,
-          );
-        }
-        terminalSequenceSet = true;
-      }
-      merged[key] = value;
-    }
+    handler(payload, meta, state, sessionId);
   }
-
-  return merged;
 }
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -238,24 +211,10 @@ export function handleHookRequest(
       return;
     }
 
-    // Per-type `Notification` matcher URLs (task 3's fallback for an
-    // unconfirmed `notification_type` body field) carry the type as
-    // `?notification_type=`. The body field wins when both are present; an
-    // absent type stays absent rather than being guessed.
-    if (!payload.notification_type) {
-      const queryType = url.searchParams.get('notification_type');
-      if (queryType) payload.notification_type = queryType;
-    }
-
-    // MemoryCapture is a synthetic follow-up from the detached nested job in
-    // hooks/memory.ts, not a live CLI hook — it arrives up to ~20s after
-    // PreCompact/SessionEnd fired, by which point SessionEnd's originating
-    // terminal has typically already exited and deleted its
-    // terminalSessionMeta (its PTY exits almost immediately once the parent
-    // hook returns). It cannot go through the meta-liveness gate below, since
-    // that would silently drop every SessionEnd capture; it resolves its own
-    // workspace (live meta first, falling back to session history) and
-    // always acks `{}`.
+    // MemoryCapture is a synthetic event the session mod POSTs after its
+    // PreCompact distillation, not a live CLI hook. The session can be gone by
+    // the time it lands, so it skips the meta-liveness gate below, resolves its
+    // own workspace (live meta first, then session history) and always acks `{}`.
     if (payload.hook_event_name === MEMORY_CAPTURE_HOOK_EVENT) {
       handleMemoryCaptureIngest(state, payload, resolvedSessionId);
       respondJson(res, 200, {});
@@ -282,11 +241,8 @@ export function handleHookRequest(
     meta.lastHookAt = Date.now();
     persistTerminalSession(resolvedSessionId, meta);
 
-    // SessionStart is delivered as a `command` hook, not `http` — claude
-    // 2.1.251 silently drops http hooks for this event and only honours the
-    // nested `{hookSpecificOutput}` shape, unlike every other (flat)
-    // HookResult. It cannot go through the synchronous HookHandler registry,
-    // so it is handled here as a narrow, explicitly async special case.
+    // SessionStart is the one event whose response the session mod reads back,
+    // and building it is async, so it bypasses the synchronous registry.
     if (payload.hook_event_name === 'SessionStart') {
       buildSessionStartContext(payload, meta)
         .then((result) => respondJson(res, 200, result))
@@ -304,14 +260,13 @@ export function handleHookRequest(
       return;
     }
 
-    let result: HookResult;
     try {
-      result = dispatchHookEvent(handlers, payload, meta, state, resolvedSessionId);
+      dispatchHookEvent(handlers, payload, meta, state, resolvedSessionId);
     } catch (err) {
       console.error(`[hooks] Handler error for event '${payload.hook_event_name}':`, err);
       respondJson(res, 500, { error: 'Hook handler failed' });
       return;
     }
-    respondJson(res, 200, result);
+    respondJson(res, 200, {});
   });
 }

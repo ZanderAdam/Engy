@@ -28,7 +28,7 @@ export function resolveTrackedDir(meta: { workingDir: string; agentCwd?: string 
 export const handleCwdChange: HookHandler = (payload, meta, state, sessionId) => {
   if (isSubagentEvent(payload)) return;
 
-  const cwd = payload.cwd;
+  const cwd = payload.new_cwd ?? payload.cwd;
   if (typeof cwd !== 'string' || !cwd || cwd === resolveTrackedDir(meta)) return;
 
   meta.agentCwd = cwd;

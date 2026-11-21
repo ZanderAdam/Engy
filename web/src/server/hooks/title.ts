@@ -45,24 +45,13 @@ export const handleStopTitle: HookHandler = (payload, meta, state, sessionId) =>
   pushTitleToAttachedBrowsers(state, sessionId, title);
 };
 
-// OSC 9;4 progress state: ;4; = "indeterminate progress" (attention), ;0; =
-// clear. Native in Windows Terminal, ConEmu, WezTerm, Ghostty.
-const ATTENTION_SET_SEQUENCE = '\x1b]9;4;4;0\x07';
-const ATTENTION_CLEAR_SEQUENCE = '\x1b]9;4;0;0\x07';
-
-// Shared by the Notification/Stop/UserPromptSubmit handlers below and by the
-// exported `clearAttention` the ack path calls. Returns whether the value
-// actually changed, so callers only emit a terminalSequence on a real
-// transition — echoing an unchanged state would spam OSC 9;4 into the PTY on
-// every turn. No direct browser push: `needsAttention` rides the existing
-// TERMINAL_ACTIVITY_CHANGE broadcast (every event that can change it already
-// triggers one via activity.ts's applyActivityState), and terminal.tsx never
-// had a handler for a separate `{t:'attention'}` PTY message.
-function setAttention(sessionId: string, meta: TerminalSessionMeta, value: boolean): boolean {
-  if (Boolean(meta.needsAttention) === value) return false;
+// No direct browser push: `needsAttention` rides the TERMINAL_ACTIVITY_CHANGE
+// broadcast, which every event that can change it already triggers through
+// activity.ts's applyActivityState.
+function setAttention(sessionId: string, meta: TerminalSessionMeta, value: boolean): void {
+  if (Boolean(meta.needsAttention) === value) return;
   meta.needsAttention = value;
   persistTerminalSession(sessionId, meta);
-  return true;
 }
 
 /**
@@ -87,8 +76,7 @@ export const handleNotificationAttention: HookHandler = (payload, meta, _state, 
   const type = resolveNotificationType(payload);
   if (!type || !ATTENTION_NOTIFICATION_TYPES.has(type)) return;
 
-  if (!setAttention(sessionId, meta, true)) return;
-  return { terminalSequence: ATTENTION_SET_SEQUENCE };
+  setAttention(sessionId, meta, true);
 };
 
 /**
@@ -102,6 +90,5 @@ export const handleNotificationAttention: HookHandler = (payload, meta, _state, 
 export const handleClearAttention: HookHandler = (payload, meta, _state, sessionId) => {
   if (isSubagentEvent(payload)) return;
 
-  if (!setAttention(sessionId, meta, false)) return;
-  return { terminalSequence: ATTENTION_CLEAR_SEQUENCE };
+  setAttention(sessionId, meta, false);
 };

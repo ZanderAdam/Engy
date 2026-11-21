@@ -39,35 +39,10 @@ describe('createTerminalActivityParser (single chunk)', () => {
     });
   });
 
-  describe('OSC 9;4 attention state extraction', () => {
-    it('[FR-TERMINAL-750] should extract a "set" attention state from OSC 9;4;4;0', () => {
-      expect(parseTerminalActivity('\x1b]9;4;4;0\x07').attention).toEqual(['set']);
-    });
-
-    it('[FR-TERMINAL-750] should extract a "clear" attention state from OSC 9;4;0;0', () => {
-      expect(parseTerminalActivity('\x1b]9;4;0;0\x07').attention).toEqual(['clear']);
-    });
-
-    it('should ignore an OSC 9 progress state Engy does not emit (e.g. state 1)', () => {
-      expect(parseTerminalActivity('\x1b]9;4;1;50\x07').attention).toEqual([]);
-    });
-
-    it('should ignore an OSC 9 sequence that is not the ;4; progress subcommand', () => {
-      expect(parseTerminalActivity('\x1b]9;some other OSC 9 use\x07').attention).toEqual([]);
-    });
-
-    it('should extract an OSC 0 title unchanged alongside an OSC 9;4 sequence', () => {
-      const result = parseTerminalActivity('\x1b]0;my title\x07\x1b]9;4;4;0\x07');
-      expect(result.titles).toEqual(['my title']);
-      expect(result.attention).toEqual(['set']);
-    });
-  });
-
   describe('mixed content', () => {
     it('should return empty results for plain text', () => {
       const result = parseTerminalActivity('hello world\r\n');
       expect(result.titles).toEqual([]);
-      expect(result.attention).toEqual([]);
     });
 
     it('should handle data with ANSI escape sequences but no OSC', () => {
@@ -119,12 +94,6 @@ describe('createTerminalActivityParser', () => {
     it('should parse a complete sequence in a single chunk on a reused parser', () => {
       const parser = createTerminalActivityParser();
       expect(parser.parse('\x1b]0;full title\x07').titles).toEqual(['full title']);
-    });
-
-    it('[FR-TERMINAL-750] should parse a 9;4 attention sequence split across two chunks', () => {
-      const parser = createTerminalActivityParser();
-      expect(parser.parse('\x1b]9;4;4').attention).toEqual([]);
-      expect(parser.parse(';0\x07').attention).toEqual(['set']);
     });
 
     it('should handle OSC split across three chunks', () => {

@@ -83,8 +83,12 @@ found (idempotent). Otherwise it creates the directory and writes three files:
 `devcontainerJsonContent({ docsDir, repos, containerConfig })` produces the
 JSON object. Repo bind-mounts are deduplicated and any repo path equal to or
 under `docsDir` is excluded (it would conflict with the workspace bind-mount).
-Two fixed mounts are always appended: `~/.claude` → `/home/node/.claude` and
-`~/.claude.json` → `/tmp/host-claude.json` (read-only). User env vars from
+Three fixed mounts are always appended: `~/.claude` → `/home/node/.claude`,
+`~/.claude/plugins` → the same absolute host path (read-only), and
+`~/.claude.json` → `/tmp/host-claude.json` (read-only). The plugins mount
+exists because `installed_plugins.json` records each plugin's `installPath` as
+an absolute host path; without it the container's Claude cannot load the
+`engy` plugin, which supplies the Engy MCP server and session hooks. User env vars from
 `containerConfig.envVars` are merged on top of default env (`NODE_OPTIONS`,
 `DEVCONTAINER`) after passing through `rewriteLocalhostUrls`. The
 `postStartCommand` rewrites the host `.claude.json` for `host.docker.internal`
@@ -108,6 +112,18 @@ policies) and per-port IPv6 `ip6tables` ACCEPT rules. The script runs a
 self-test after applying rules and fails if `example.com` is reachable or
 `api.github.com` is not.
 
+## Engy plugin on the remote side
+
+A Claude terminal gets its Engy MCP server and session hooks from the `engy`
+plugin (see terminal-relay), not from spawn flags, so the plugin must load
+wherever Claude runs. A devcontainer uses the host's installed plugins through
+the plugins mount above. `generateDevcontainerConfig()` never rewrites an
+existing `.devcontainer` directory, so one scaffolded before that mount needs
+deleting to pick it up. A Coder workspace does not share the host's
+`~/.claude`: the `engy` plugin (Claude Code 2.1.287 or later) must be installed
+in the workspace itself and kept at the server's Engy version. Without it the
+terminal starts with no Engy tools and no hooks, and nothing reports it.
+
 ## Requirements
 
 | ID | Requirement (EARS) |
@@ -126,6 +142,7 @@ self-test after applying rules and fails if `example.com` is reachable or
 | FR-CONTAINER-120 | WHEN `devcontainerJsonContent()` is called, the system SHALL exclude from bind-mounts any repo path equal to or under `docsDir` and SHALL deduplicate the remaining repo paths so each appears at most once. |
 | FR-CONTAINER-130 | WHEN `devcontainerJsonContent()` is called with `containerConfig.envVars`, the system SHALL rewrite `http(s)://localhost:<port>` values to `host.docker.internal:<port>` and SHALL merge the rewritten vars on top of the default container environment. |
 | FR-CONTAINER-140 | WHEN `firewallScriptContent()` is called with `hostPorts`, the system SHALL emit an IPv4 `HOST_PORTS` iptables block placed after the host-network ESTABLISHED rule and before the default DROP policies, and SHALL emit per-port IPv6 ACCEPT rules for `host.docker.internal`; WHERE no `hostPorts` are given, both blocks SHALL be omitted while the IPv6 lockdown block is always emitted. |
+| FR-CONTAINER-150 | WHEN `devcontainerJsonContent()` is called, the system SHALL bind-mount the host's `~/.claude/plugins` read-only at the same absolute path, so plugin `installPath`s recorded on the host resolve inside the container. |
 
 ## Sources
 

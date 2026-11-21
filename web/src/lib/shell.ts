@@ -6,7 +6,7 @@ export const ENGY_ORIENTATION = [
   'You are running inside Engy, a single-user AI-assisted engineering workspace.',
   'Workspaces hold ongoing work; projects are bounded scopes within them.',
   'The IDs below identify your current workspace and project; Engy MCP tools',
-  '(mcp__Engy__*) take them to scope their operations.',
+  '(mcp__plugin_engy_Engy__*) take them to scope their operations.',
   '',
   'Engy MCP tools:',
   '- getWorkspaceDetails / getProjectDetails — filesystem paths (specs, docs) and execution context',
@@ -62,13 +62,9 @@ export function buildContextBlock({
     lines.push(`${label}: ${repos.join(', ')}`);
   }
   if (autoAgentCompletion === 'pr') {
-    lines.push(
-      'When done, push your branch and create a pull request.',
-    );
+    lines.push('When done, push your branch and create a pull request.');
   } else if (autoAgentCompletion === 'merge') {
-    lines.push(
-      'When done, commit your changes. The system will handle merging automatically.',
-    );
+    lines.push('When done, commit your changes. The system will handle merging automatically.');
   }
   if (earsBdd) {
     lines.push(

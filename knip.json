@@ -1,5 +1,6 @@
 {
-  "ignore": [],
+  "ignore": ["plugins/**"],
+  "ignoreBinaries": ["claude"],
   "ignoreDependencies": ["prettier", "@playwright/cli"],
   "workspaces": {
     ".": {

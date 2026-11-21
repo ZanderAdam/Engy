@@ -193,13 +193,13 @@ describe('hooks/title', () => {
 
   describe('handleNotificationAttention', () => {
     it.each(['permission_prompt', 'agent_needs_input', 'elicitation_dialog'])(
-      '[FR-TERMINAL-730] sets needsAttention and returns the 9;4 set sequence for %s',
+      '[FR-TERMINAL-730] sets needsAttention for %s',
       (notification_type) => {
         const sessionId = 'sess-8';
         const meta = baseMeta();
         const state = makeState(sessionId, meta);
 
-        const result = handleNotificationAttention(
+        handleNotificationAttention(
           notificationPayload({ notification_type }),
           meta,
           state,
@@ -207,7 +207,6 @@ describe('hooks/title', () => {
         );
 
         expect(meta.needsAttention).toBe(true);
-        expect(result).toEqual({ terminalSequence: '\x1b]9;4;4;0\x07' });
       },
     );
 
@@ -216,7 +215,7 @@ describe('hooks/title', () => {
       const meta = baseMeta();
       const state = makeState(sessionId, meta);
 
-      const result = handleNotificationAttention(
+      handleNotificationAttention(
         notificationPayload({ notification_type: 'idle_prompt' }),
         meta,
         state,
@@ -224,7 +223,6 @@ describe('hooks/title', () => {
       );
 
       expect(meta.needsAttention).toBeUndefined();
-      expect(result).toBeUndefined();
     });
 
     it('[FR-TERMINAL-730] ignores a missing notification_type rather than guessing', () => {
@@ -232,7 +230,7 @@ describe('hooks/title', () => {
       const meta = baseMeta();
       const state = makeState(sessionId, meta);
 
-      const result = handleNotificationAttention(
+      handleNotificationAttention(
         notificationPayload({ notification_type: undefined }),
         meta,
         state,
@@ -240,7 +238,6 @@ describe('hooks/title', () => {
       );
 
       expect(meta.needsAttention).toBeUndefined();
-      expect(result).toBeUndefined();
     });
 
     it('[TG1 gate] ignores a Notification fired inside a subagent', () => {
@@ -257,29 +254,17 @@ describe('hooks/title', () => {
 
       expect(meta.needsAttention).toBeUndefined();
     });
-
-    it('is a no-op when attention is already set', () => {
-      const sessionId = 'sess-12';
-      const meta = baseMeta({ needsAttention: true });
-      const state = makeState(sessionId, meta);
-
-      const result = handleNotificationAttention(notificationPayload(), meta, state, sessionId);
-
-      expect(result).toBeUndefined();
-      expect(meta.needsAttention).toBe(true);
-    });
   });
 
   describe('handleClearAttention', () => {
-    it('[FR-TERMINAL-730] clears needsAttention on Stop and returns the 9;4 clear sequence', () => {
+    it('[FR-TERMINAL-730] clears needsAttention on Stop', () => {
       const sessionId = 'sess-14';
       const meta = baseMeta({ needsAttention: true });
       const state = makeState(sessionId, meta);
 
-      const result = handleClearAttention(stopPayload(), meta, state, sessionId);
+      handleClearAttention(stopPayload(), meta, state, sessionId);
 
       expect(meta.needsAttention).toBe(false);
-      expect(result).toEqual({ terminalSequence: '\x1b]9;4;0;0\x07' });
     });
 
     it('[FR-TERMINAL-730] clears needsAttention on UserPromptSubmit', () => {
@@ -287,10 +272,9 @@ describe('hooks/title', () => {
       const meta = baseMeta({ needsAttention: true });
       const state = makeState(sessionId, meta);
 
-      const result = handleClearAttention(userPromptSubmitPayload(), meta, state, sessionId);
+      handleClearAttention(userPromptSubmitPayload(), meta, state, sessionId);
 
       expect(meta.needsAttention).toBe(false);
-      expect(result).toEqual({ terminalSequence: '\x1b]9;4;0;0\x07' });
     });
 
     it('[TG1 gate] ignores a Stop fired inside a subagent, leaving attention set', () => {
@@ -308,9 +292,9 @@ describe('hooks/title', () => {
       const meta = baseMeta();
       const state = makeState(sessionId, meta);
 
-      const result = handleClearAttention(stopPayload(), meta, state, sessionId);
+      handleClearAttention(stopPayload(), meta, state, sessionId);
 
-      expect(result).toBeUndefined();
+      expect(meta.needsAttention).toBeFalsy();
     });
   });
 

@@ -85,6 +85,8 @@ Use Engy from your phone. The Kanban and Eisenhower views collapse into accordio
 
 Engy ships a pre-configured DevContainer setup. Enable it from Workspace settings and it scaffolds the `.devcontainer/` directory (with `devcontainer.json`, `Dockerfile`, and a firewall init script that locks outbound traffic to an allowlist). Agents can also run in remote [Coder](https://coder.com) cloud workspaces. Build progress streams as terminal output.
 
+Claude terminals get the Engy MCP server and session hooks from the `engy` plugin, so the plugin must be installed where Claude runs. A DevContainer uses the host's installed plugins through a read-only mount of `~/.claude/plugins`. A `.devcontainer/` directory scaffolded before this mount existed does not have it: delete the directory and enable the container again to scaffold it anew. In a Coder workspace, install the `engy` plugin (Claude Code 2.1.287 or later) and keep it at the same Engy version as the server. Without the plugin, a remote Claude terminal has no Engy tools and no session hooks.
+
 ### MCP Server
 
 Built-in Model Context Protocol server at `/mcp` so AI agents (Claude Code CLI) can read specs, create and update tasks, manage project state, capture memories, run unified search, and trace requirements coverage with the `trace` tool — directly.
@@ -200,26 +202,11 @@ Use the project **Tasks** tab to create and organize tasks. Switch between Kanba
 
 ### Connect Claude Code (MCP)
 
-Engy exposes an MCP server at `/mcp` on the same port. To connect Claude Code CLI:
+Engy exposes an MCP server at `/mcp` on the same port. The `engy` plugin connects Claude Code to it, so there is nothing else to register. By default it uses `http://localhost:3000/mcp`. For another port or host, export `ENGY_MCP_URL` in your shell profile. Do not put it in the `env` block of `~/.claude/settings.json`: that value overrides the per-session endpoint that Engy-spawned terminals set, so their tool calls lose the terminal identity.
 
-```bash
-claude mcp add --transport http Engy http://localhost:3000/mcp --scope user
-```
+If you registered Engy by hand before (`claude mcp add … Engy`), remove that server with `claude mcp remove Engy`. If you keep it, Claude Code hides the plugin server in normal sessions (same URL), so plugin agents that call `mcp__plugin_engy_Engy__*` tools lose them, and Engy-spawned sessions show two Engy servers.
 
-Or add it to your `.mcp.json` (adjust the port if needed):
-
-```json
-{
-  "mcpServers": {
-    "engy": {
-      "type": "sse",
-      "url": "http://localhost:3000/mcp"
-    }
-  }
-}
-```
-
-Claude Code can then read specs, create tasks, update milestones, capture memories, search, and trace requirements.
+Claude Code can then read specs, create tasks, update milestones, capture memories, search, and trace requirements. The tools are named `mcp__plugin_engy_Engy__*`.
 
 ## Architecture
 
